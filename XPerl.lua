@@ -1502,6 +1502,50 @@ function XPerl_CombatFlashSetFrames(self)
 	end
 end
 
+-- PlayerIsHealer
+-- Healers on this server can dispel every dispellable type, so for them "only curable" means
+-- all four rather than just their class's. Spec is checked and not just class, so a shadow
+-- priest, ret paladin, feral druid or enhance shaman keeps the normal WotLK rules.
+local healingTabs = {
+	PRIEST	= {[1] = true, [2] = true},		-- Discipline, Holy
+	PALADIN	= {[1] = true},				-- Holy
+	DRUID	= {[3] = true},				-- Restoration
+	SHAMAN	= {[3] = true},				-- Restoration
+}
+local isHealer						-- nil = not worked out yet, false = worked out, not a healer
+local function PlayerIsHealer()
+	if (isHealer == nil) then
+		local tabs = healingTabs[playerClass]
+		if (not tabs) then
+			isHealer = false			-- Not a healing class, and that won't change
+		else
+			local bestTab, bestPoints = nil, 0
+			for i = 1, (GetNumTalentTabs() or 0) do
+				local _, _, points = GetTalentTabInfo(i)
+				if ((points or 0) > bestPoints) then
+					bestTab, bestPoints = i, points
+				end
+			end
+			if (not bestTab) then
+				-- No talents readable yet, which happens for a moment on login. Answer no for
+				-- now but don't remember it, or we'd be stuck with it for the whole session.
+				return false
+			end
+			isHealer = tabs[bestTab] and true or false
+		end
+	end
+	return isHealer
+end
+
+-- Respeccing or swapping dual spec changes the answer, so drop the cache and re-check on next use
+do
+	local f = CreateFrame("Frame")
+	f:SetScript("OnEvent", function() isHealer = nil end)
+	for i, event in pairs({"PLAYER_ENTERING_WORLD", "CHARACTER_POINTS_CHANGED", "PLAYER_TALENT_UPDATE", "ACTIVE_TALENT_GROUP_CHANGED"}) do
+		pcall(f.RegisterEvent, f, event)
+	end
+end
+
 local getShow
 function XPerl_DebufHighlightInit()
 	-- We also re-set the colours here so that we highlight best colour per class
@@ -1517,7 +1561,7 @@ function XPerl_DebufHighlightInit()
 	elseif (playerClass == "DRUID") then
 		getShow = function(Curses)
 			local show
-			if (not conf.highlightDebuffs.class) then
+			if (not conf.highlightDebuffs.class or PlayerIsHealer()) then
 				show = Curses.Magic or Curses.Curse or Curses.Poison or Curses.Disease
 			end
 			return Curses.Curse or Curses.Poison or show
@@ -1526,7 +1570,7 @@ function XPerl_DebufHighlightInit()
 	elseif (playerClass == "PRIEST") then
 		getShow = function(Curses)
 			local show
-			if (not conf.highlightDebuffs.class) then
+			if (not conf.highlightDebuffs.class or PlayerIsHealer()) then
 				show = Curses.Magic or Curses.Curse or Curses.Poison or Curses.Disease
 			end
 			return Curses.Magic or Curses.Disease or show
@@ -1544,7 +1588,7 @@ function XPerl_DebufHighlightInit()
 	elseif (playerClass == "PALADIN") then
 		getShow = function(Curses)
 			local show
-			if (not conf.highlightDebuffs.class) then
+			if (not conf.highlightDebuffs.class or PlayerIsHealer()) then
 				show = Curses.Magic or Curses.Curse or Curses.Poison or Curses.Disease
 			end
 			return Curses.Magic or Curses.Poison or Curses.Disease or show
@@ -1553,7 +1597,7 @@ function XPerl_DebufHighlightInit()
 	elseif (playerClass == "SHAMAN") then
 		getShow = function(Curses)
 			local show
-			if (not conf.highlightDebuffs.class) then
+			if (not conf.highlightDebuffs.class or PlayerIsHealer()) then
 				show = Curses.Magic or Curses.Curse or Curses.Poison or Curses.Disease
 			end
 			return Curses.Curse or Curses.Poison or Curses.Disease or show

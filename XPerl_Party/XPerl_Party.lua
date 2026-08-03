@@ -177,8 +177,12 @@ function XPerl_Party_OnLoad(self)
 	self.hitIndicator.text:SetPoint("CENTER", self.portraitFrame, "CENTER", 0, 0)
 	CombatFeedback_Initialize(self, self.hitIndicator.text, 30)
 
-	XPerl_SecureUnitButton_OnLoad(self, self.partyid, nil, getglobal("PartyMemberFrame"..self:GetID().."DropDown"), getglobal("PartyMemberFrame" .. self:GetID()).menu)
-	XPerl_SecureUnitButton_OnLoad(self.nameFrame, self.partyid, nil, getglobal("PartyMemberFrame"..self:GetID().."DropDown"), getglobal("PartyMemberFrame" .. self:GetID()).menu)
+	-- Was Blizzard's PartyMemberFrame dropdown, which is hardcoded to the PARTY unit menu.
+	-- XPerl's own menu picks RAID_PLAYER or PARTY by context, so the raid target submenu is
+	-- there in both, and a raid gives the raid options instead of the party ones. Same call
+	-- the target-of-party and target-of-target frames already use.
+	XPerl_SecureUnitButton_OnLoad(self, self.partyid, XPerl_ShowGenericMenu)
+	XPerl_SecureUnitButton_OnLoad(self.nameFrame, self.partyid, XPerl_ShowGenericMenu)
 
 	self.time = 0
 	self.flagsCheck = 0
@@ -738,6 +742,32 @@ local function XPerl_Party_TargetRaidIcon(self)
 	XPerl_Update_RaidIcon(self.targetFrame.raidIcon, self.partyid.."target")
 end
 
+-- XPerl_Party_RaidIcon
+-- The marker on the party member themselves. The XML only ever had one of these, on the
+-- target sub-frame, so raid markers never showed on the member. Created on demand the same
+-- way the raid frames do it, which keeps this out of the XML entirely.
+-- Move the SetPoint below if it clashes with the combat icon on your frame width.
+local function XPerl_Party_RaidIcon(self)
+	local icon = self.nameFrame.raidIcon
+	local index = GetRaidTargetIndex(self.partyid)
+
+	if (index) then
+		if (not icon) then
+			icon = self.nameFrame:CreateTexture(nil, "OVERLAY")
+			self.nameFrame.raidIcon = icon
+			icon:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
+			icon:SetPoint("TOPRIGHT", self.nameFrame, "TOPRIGHT", -2, -2)
+			icon:SetWidth(16)
+			icon:SetHeight(16)
+		else
+			icon:Show()
+		end
+		SetRaidTargetIconTexture(icon, index)
+	elseif (icon) then
+		icon:Hide()
+	end
+end
+
 -- XPerl_Party_UpdateTarget
 local function XPerl_Party_UpdateTarget(self)
 	if (pconf.target.enable) then
@@ -845,6 +875,7 @@ function XPerl_Party_UpdateDisplay(self, less)
 		XPerl_Party_UpdatePVP(self)
 		XPerl_Unit_UpdatePortrait(self)
 		XPerl_Party_Buff_UpdateAll(self)
+		XPerl_Party_RaidIcon(self)
 		XPerl_Party_UpdateTarget(self)
 		XPerl_Unit_UpdateReadyState(self)
 		XPerl_UpdateSpellRange(self, self.partyid)
@@ -885,6 +916,7 @@ XPerl_Party_Events.PARTY_LOOT_METHOD_CHANGED	= XPerl_Party_Events.PARTY_LEADER_C
 function XPerl_Party_Events:RAID_TARGET_UPDATE()
 	for i,frame in pairs(PartyFrames) do
 		if (frame.partyid) then
+			XPerl_Party_RaidIcon(frame)
 			XPerl_Party_TargetRaidIcon(frame)
 		end
 	end
