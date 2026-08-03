@@ -1,0 +1,49 @@
+## Interface: 30300
+## Title: X-Perl UnitFrames |cFF40FF40(All-in-One)|r by |cFFFF8080Zek|r
+## Author: Zek
+## Version: 3.1.0 (all-in-one)
+## Notes: Replaces the normal unit, party, target, pet frames and adds target-of-target. All X-Perl modules merged into one folder - toggle them in the X-Perl options panel (Frames tab).
+## X-eMail: zeksie@gmail.com
+## X-License: GNU GPL v3, 29 June 2007
+## X-Category: Interface Enhancements
+## OptionalDeps: LibHealComm-4.0, LibHealComm-3.0
+## SavedVariables: XPerlConfig, XPerlConfig_Global, XPerlConfigNew, XPerlConfigSavePerCharacter
+## SavedVariablesPerCharacter: XPerlModuleState, XPerl_Admin, XPerl_CheckItems, XPerl_Roster, XPerlConfigHelper, XPerl_MainTanks, XPerlRaidMonConfig
+
+# --- Core ---
+XPerl_Modules.lua
+XPerl_Globals.xml
+XPerl.xml
+
+# --- Cast bars (load before the frames that attach to them) ---
+XPerl_ArcaneBar\XPerl_ArcaneBar.xml
+
+# --- Player ---
+XPerl_Player\XPerl_Player.xml
+XPerl_PlayerBuffs\XPerl_PlayerBuffs.lua
+XPerl_PlayerPet\XPerl_Player_Pet.xml
+
+# --- Target / Focus ---
+XPerl_Target\XPerl_Target.xml
+XPerl_TargetTarget\XPerl_TargetTarget.xml
+
+# --- Party ---
+XPerl_Party\XPerl_Party.xml
+XPerl_PartyPet\XPerl_Party_Pet.xml
+
+# --- Raid ---
+XPerl_RaidFrames\XPerl_Raid.xml
+XPerl_RaidPets\XPerl_RaidPets.xml
+XPerl_RaidHelper\XPerl_RaidHelper.xml
+XPerl_RaidHelper\XPerl_AssistFrame.xml
+XPerl_RaidAdmin\XPerl_RaidAdmin.xml
+XPerl_RaidAdmin\XPerl_Check.xml
+XPerl_RaidAdmin\XPerl_RosterText.xml
+XPerl_RaidMonitor\XPerl_RaidMonitor.xml
+
+# --- Extras ---
+XPerl_CustomHighlight\XPerl_CustomHighlight.lua
+XPerl_Tutorial\XPerl_Tutorial.xml
+
+# --- Options (loaded last) ---
+XPerl_Options\XPerl_FrameOptions.xml
