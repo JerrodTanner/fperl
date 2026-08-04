@@ -1008,7 +1008,7 @@ function XPerl_MinimapMenu_Initialize(self, level)
 		UIDropDownMenu_AddButton(info)
 	end
 
-	if (IsAddOnLoaded("XPerl_RaidHelper")) then
+	if (XPerl_ModuleLoaded("XPerl_RaidHelper")) then
 		if (XPerl_Assists_Frame and not XPerl_Assists_Frame:IsShown()) then
 			info = UIDropDownMenu_CreateInfo()
 			info.notCheckable = 1
@@ -1022,7 +1022,7 @@ function XPerl_MinimapMenu_Initialize(self, level)
 		end
 	end
 
-	if (IsAddOnLoaded("XPerl_RaidMonitor")) then
+	if (XPerl_ModuleLoaded("XPerl_RaidMonitor")) then
 		if (XPerl_RaidMonitor_Frame and not XPerl_RaidMonitor_Frame:IsShown()) then
 			info = UIDropDownMenu_CreateInfo()
 			info.notCheckable = 1
@@ -1035,7 +1035,7 @@ function XPerl_MinimapMenu_Initialize(self, level)
 		end
 	end
 
-	if (IsAddOnLoaded("XPerl_RaidAdmin")) then
+	if (XPerl_ModuleLoaded("XPerl_RaidAdmin")) then
 		if (XPerl_AdminFrame and not XPerl_AdminFrame:IsShown()) then
 			info = UIDropDownMenu_CreateInfo()
 			info.notCheckable = 1
@@ -3796,14 +3796,14 @@ function XPerl_SetExpectedHealth()
 end
 
 function XPerl_Load_LQHLHC()
-	if (LibStub or LoadAddOn("LibStub")) then
+	if (LibStub or XPerl_ModuleLoad("LibStub")) then
 		local lqh = 1
-		LoadAddOn("LibQuickHealth-2.0")
+		XPerl_ModuleLoad("LibQuickHealth-2.0")
 		local QuickHealth = LibStub("LibQuickHealth-2.0", true)
 		if (QuickHealth) then
 			lqh = 2
 		else
-			LoadAddOn("LibQuickHealth-1.0")
+			XPerl_ModuleLoad("LibQuickHealth-1.0")
 			QuickHealth = LibStub("LibQuickHealth-1.0", true)
 		end
 
@@ -3856,11 +3856,11 @@ function XPerl_Load_LQHLHC()
 		end
 
 		-- HealComm interface
-		LoadAddOn("LibHealComm-4.0")
+		XPerl_ModuleLoad("LibHealComm-4.0")
 		local HealComm4 = LibStub and LibStub("LibHealComm-4.0", true)
 		local HealComm3
 		if (not HealComm4) then
-			LoadAddOn("LibHealComm-3.0")
+			XPerl_ModuleLoad("LibHealComm-3.0")
 			HealComm3 = LibStub and LibStub("LibHealComm-3.0", true)
 		end
 

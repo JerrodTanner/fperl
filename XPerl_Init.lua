@@ -468,7 +468,7 @@ function XPerl_Init()
 		hooksecurefunc(GameTooltip, "SetUnitDebuff", XPerl_GameTooltipSetUnitDebuff)
 	end
 
-	DisableAddOn("XPerl_TeamSpeak")
+	XPerl_ModuleDisable("XPerl_TeamSpeak")
 
 	-- Check for eCastbar and disable old frame if used.
 	if (eCastingBar_Saved and eCastingBar_Player and eCastingBar_Saved[eCastingBar_Player].Enabled == 1) then
@@ -508,7 +508,7 @@ function XPerl_Init()
 		end
 	end
 
-	local name, title, notes, enabled = GetAddOnInfo("SupportFuncs")
+	local name, title, notes, enabled = XPerl_ModuleGetInfo("SupportFuncs")
 	if (name and enabled) then
 		local ver = GetAddOnMetadata(name, "Version")
 		if (tonumber(ver) < 20000.2) then
@@ -516,7 +516,7 @@ function XPerl_Init()
 		end
 	end
 
-	name, title, notes, enabled = GetAddOnInfo("AutoBar")
+	name, title, notes, enabled = XPerl_ModuleGetInfo("AutoBar")
 	if (name and enabled) then
 		local ver = GetAddOnMetadata(name, "Version")
 		if (ver < "2.01.00.02 beta") then
@@ -524,7 +524,7 @@ function XPerl_Init()
 		end
 	end
 
-	name, title, notes, enabled = GetAddOnInfo("TrinityBars")
+	name, title, notes, enabled = XPerl_ModuleGetInfo("TrinityBars")
 	if (name and enabled) then
 		local ver = GetAddOnMetadata(name, "Version")
 		if (ver <= "20003.14") then
@@ -737,9 +737,9 @@ function XPerl_OptionActions(which)
 	end
 
 	if (conf.showTutorials) then
-		if (not IsAddOnLoaded("XPerl_Tutorial")) then
-			EnableAddOn("XPerl_Tutorial")
-			LoadAddOn("XPerl_Tutorial")
+		if (not XPerl_ModuleLoaded("XPerl_Tutorial")) then
+			XPerl_ModuleEnable("XPerl_Tutorial")
+			XPerl_ModuleLoad("XPerl_Tutorial")
 		end
 	end
 

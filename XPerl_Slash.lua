@@ -37,6 +37,14 @@ local function XPerl_SlashHandler(msg)
 			end
 		end
 
+	elseif (args[1] == XPERL_CMD_TEST) then
+		-- Sample raid groups for setting up buff/debuff layout without being in a raid
+		if (XPerl_Raid_TestMode) then
+			XPerl_Raid_TestMode()
+		else
+			XPerl_Notice(XPERL_TEST_MODE_NO_RAID_MODULE)
+		end
+
 	elseif (args[1] == XPERL_CMD_CONFIG) then
 		if (args[2] == XPERL_CMD_LIST) then
 			local current

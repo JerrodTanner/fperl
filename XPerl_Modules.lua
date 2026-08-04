@@ -8,17 +8,33 @@
 -- system *inside* the merged addon:
 --
 --   * A per-character SavedVariable (XPerlModuleState) stores the DESIRED state
---     of each module. This is what EnableAddOn/DisableAddOn write.
+--     of each module. This is what XPerl_ModuleEnable/Disable write.
 --   * A session table (active) stores what is actually running THIS session,
---     decided once at load from the desired state. This is what IsAddOnLoaded
---     reports, so the "Reload UI" button in the Options panel lights up exactly
---     as before whenever a pending change differs from the running state.
+--     decided once at load from the desired state. This is what
+--     XPerl_ModuleLoaded reports, so the "Reload UI" button in the Options
+--     panel lights up exactly as before whenever a pending change differs from
+--     the running state.
 --   * On load, any module whose desired state is "off" is torn down (frames
 --     hidden, events unregistered, updates stopped) so it is inert.
 --
 -- Net effect: the existing Options panel keeps working unchanged - tick a box,
 -- the Reload UI button enables, reload, and the module turns on/off. Exactly the
 -- original workflow, just backed by one folder instead of many.
+--
+-- IMPORTANT - do not go back to replacing the real AddOn API here.
+-- An earlier version of this file assigned to the globals EnableAddOn,
+-- DisableAddOn, IsAddOnLoaded, LoadAddOn and GetAddOnInfo so that untouched
+-- module code would keep working. That taints those globals: Blizzard's own
+-- code calls them (UIParentLoadAddOn for the talent, glyph, trainer and inspect
+-- panels, the AddOn list, and more), so Blizzard execution paths picked up our
+-- taint. A tainted path is refused permission to take protected actions, which
+-- shows up in game as spells that cannot be cast, action buttons that go blank,
+-- and "Interface action failed because of an AddOn" - intermittently, depending
+-- on which path happened to run first.
+--
+-- Instead the functions below are XPerl-named and every call site inside X-Perl
+-- calls them directly. They fall through to the real Blizzard function for any
+-- name that is not one of our modules, so they are safe drop-in replacements.
 -- ---------------------------------------------------------------------------
 
 -- Ordered list is not important here; keys are the old AddOn names.
@@ -171,58 +187,61 @@ local function ApplyModuleStates()
 end
 
 ----------------------------------------------------------------------
--- Shims for the AddOn API, scoped to X-Perl module names only.
+-- Stand-ins for the AddOn API, scoped to X-Perl module names only.
 -- Anything that is not one of our modules is passed straight through to
--- the real Blizzard function, so other addons are unaffected.
+-- the real Blizzard function, so these are safe to use everywhere inside
+-- X-Perl regardless of what name is being asked about.
+--
+-- These deliberately do NOT overwrite the Blizzard globals - see the note
+-- at the top of this file for why that broke spell casting.
 ----------------------------------------------------------------------
-local _EnableAddOn   = EnableAddOn
-local _DisableAddOn  = DisableAddOn
-local _IsAddOnLoaded = IsAddOnLoaded
-local _LoadAddOn     = LoadAddOn
-local _GetAddOnInfo  = GetAddOnInfo
-
 local function SetDesired(name, on)
 	XPerlModuleState = XPerlModuleState or {}
 	XPerlModuleState[name] = on and true or false
 end
 
-function EnableAddOn(name, ...)
+-- XPerl_ModuleEnable(name) - replaces EnableAddOn
+function XPerl_ModuleEnable(name, ...)
 	if (name and MODULES[name]) then
 		SetDesired(name, true)
 		return
 	end
-	return _EnableAddOn(name, ...)
+	return EnableAddOn(name, ...)
 end
 
-function DisableAddOn(name, ...)
+-- XPerl_ModuleDisable(name) - replaces DisableAddOn
+function XPerl_ModuleDisable(name, ...)
 	if (name and MODULES[name]) then
 		local info = MODULES[name]
 		if (info and info.always) then return end	-- never disable helpers
 		SetDesired(name, false)
 		return
 	end
-	return _DisableAddOn(name, ...)
+	return DisableAddOn(name, ...)
 end
 
-function IsAddOnLoaded(name, ...)
+-- XPerl_ModuleLoaded(name) - replaces IsAddOnLoaded
+function XPerl_ModuleLoaded(name, ...)
 	if (name and MODULES[name]) then
 		-- Return 1/nil to match Blizzard's IsAddOnLoaded and CheckButton:GetChecked()
 		-- in 3.3.5a. The Options "Reload UI" button compares the two directly, so
 		-- the value types must line up or it would always appear enabled.
 		return XPerl_ModuleIsActive(name) and 1 or nil
 	end
-	return _IsAddOnLoaded(name, ...)
+	return IsAddOnLoaded(name, ...)
 end
 
-function LoadAddOn(name, ...)
+-- XPerl_ModuleLoad(name) - replaces LoadAddOn
+function XPerl_ModuleLoad(name, ...)
 	if (name and MODULES[name]) then
 		-- Everything is already in memory in the merged build.
 		return true, nil
 	end
-	return _LoadAddOn(name, ...)
+	return LoadAddOn(name, ...)
 end
 
-function GetAddOnInfo(name, ...)
+-- XPerl_ModuleGetInfo(name) - replaces GetAddOnInfo
+function XPerl_ModuleGetInfo(name, ...)
 	if (name and MODULES[name]) then
 		-- name, title, notes, enabled, loadable, reason, security
 		-- reason = nil means "present and loadable" (the Options panel checks
@@ -231,7 +250,7 @@ function GetAddOnInfo(name, ...)
 		local enabled = IsDesired(name) and 1 or nil
 		return name, name, "", enabled, 1, nil, "INSECURE"
 	end
-	return _GetAddOnInfo(name, ...)
+	return GetAddOnInfo(name, ...)
 end
 
 -- Compute (once) and re-assert teardown of every disabled module.

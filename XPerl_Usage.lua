@@ -379,7 +379,7 @@ function mod:MakePacket(response, versionOnly)
 	else
 		local modules = ""
 		for k,v in pairs(xpModList) do
-			modules = modules..(tostring(IsAddOnLoaded(v) or 0))
+			modules = modules..(tostring(XPerl_ModuleLoaded(v) or 0))
 		end
 		local gc = floor(collectgarbage("count"))
 

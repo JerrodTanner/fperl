@@ -265,6 +265,10 @@ function XPerl_Raid_OptionActions()
 		if (XPerl_RaidPets_OptionActions) then
 			XPerl_RaidPets_OptionActions()
 		end
+		-- So the sample frames from /xperl test follow the sliders as they're dragged
+		if (XPerl_Raid_TestMode_Refresh) then
+			XPerl_Raid_TestMode_Refresh()
+		end
 	end
 end
 
@@ -308,24 +312,112 @@ function XPerl_Options_OnUpdate(self,arg1)
 	end
 end
 
--- XPerl_Options_MaxScaleSet
 local Sliders = {}
-function XPerl_Options_MaxScaleSet()
+
+-- refreshingSliders
+-- Set while we drive the scaling sliders ourselves rather than the user dragging one.
+--
+-- Changing a slider's range or value fires OnValueChanged, and the handler writes the
+-- widget's value back into the config. A slider on a tab page that has not been opened
+-- yet is still sitting at its floor instead of at its saved value, so letting that event
+-- through wrote 50% over the saved scale - which is why frame scales and positions came
+-- back as 50% after a relog. Everything below reads the config as the source of truth and
+-- suppresses the write-back for the duration.
+local refreshingSliders
+
+-- SliderRange(slider)
+local function SliderRange(slider)
+	local min = slider.min or 50
+	local max = slider.max or floor(XPerlDB.maximumScale * 100 * (slider.maxFactor or 1) + 0.5)
+	return min, max
+end
+
+-- SetSliderRange(slider, min, max)
+local function SetSliderRange(slider, min, max)
+	slider:SetMinMaxValues(min, max)
+	_G[slider:GetName().."Low"]:SetFormattedText("%d"..PERCENT_SYMBOL, min)
+	_G[slider:GetName().."High"]:SetFormattedText("%d"..PERCENT_SYMBOL, max)
+end
+
+-- ShowSliderValue(slider, value)
+local function ShowSliderValue(slider, value)
+	slider:SetValue(value)
+	local current = _G[slider:GetName().."Current"]
+	if (current) then
+		current:SetText(floor(value + 0.5)..PERCENT_SYMBOL)
+	end
+end
+
+-- XPerl_Options_MaxScaleRefresh
+-- Re-reads the slider ranges without touching anybody's settings. Called when the options
+-- window opens, because the sliders are built before XPerlDB exists and would otherwise
+-- keep the hardcoded 150% fallback until Maximum Frame Scale was dragged.
+--
+-- A saved scale above the current maximum widens that slider's range to fit rather than
+-- being pulled down. Opening the options window is not a request to change anything, and
+-- silently rewriting a saved scale is exactly the bug this replaced.
+function XPerl_Options_MaxScaleRefresh()
+	if (not XPerlDB or not XPerlDB.maximumScale) then
+		return
+	end
+
+	refreshingSliders = true
 
 	for i,slider in pairs(Sliders) do
-        	local old = slider:GetValue()
-		local min = slider.min or 50
-		local max = slider.max or floor(XPerlDB.maximumScale * 100 * (slider.maxFactor or 1) + 0.5)
+		local min, max = SliderRange(slider)
+		local saved = XPerl_Options_GetIndex(slider)
+		local value = saved and floor(100 * saved + 0.5)
 
-        	slider:SetMinMaxValues(min, max)
+		if (value) then
+			if (value > max) then
+				max = value
+			elseif (value < min) then
+				min = value
+			end
+		end
 
-        	_G[slider:GetName().."Low"]:SetFormattedText("%d"..PERCENT_SYMBOL, min)
-        	_G[slider:GetName().."High"]:SetFormattedText("%d"..PERCENT_SYMBOL, max)
+		SetSliderRange(slider, min, max)
 
-		if (old > max) then
-			slider:SetValue(max)
-		elseif (old < min) then
-			slider:SetValue(min)
+		if (value) then
+			ShowSliderValue(slider, value)
+		end
+	end
+
+	refreshingSliders = nil
+end
+
+-- XPerl_Options_MaxScaleSet
+-- The destructive one, for when the user actually drags Maximum Frame Scale. Lowering that
+-- is a deliberate request to bring frames within the new limit, so a saved scale above it
+-- is clamped and written back. Values come from the config, not from the widgets, so an
+-- unopened tab's slider can't contribute a stale number.
+function XPerl_Options_MaxScaleSet()
+	for i,slider in pairs(Sliders) do
+		local min, max = SliderRange(slider)
+
+		SetSliderRange(slider, min, max)
+
+		local saved = XPerl_Options_GetIndex(slider)
+		if (saved) then
+			local value = floor(100 * saved + 0.5)
+			local clamped = value
+
+			if (value > max) then
+				clamped = max
+			elseif (value < min) then
+				clamped = min
+			end
+
+			refreshingSliders = true
+			ShowSliderValue(slider, clamped)
+			refreshingSliders = nil
+
+			if (clamped ~= value) then
+				XPerl_Options_SetIndex(slider, clamped / 100)
+				if (slider.configClick) then
+					slider.configClick()
+				end
+			end
 		end
 	end
 end
@@ -444,7 +536,9 @@ local function scalingOnValueChanged(self, value)
 	local i = XPerl_Options_GetIndex(self)
 
 	if (i) then
-		if (floor(100 * i + 0.5) ~= value) then
+		-- refreshingSliders means we moved this slider ourselves to match the config, so
+		-- writing the widget's value back would overwrite the very setting we just read.
+		if (not refreshingSliders and floor(100 * i + 0.5) ~= value) then
 			XPerl_Options_SetIndex(self, value / 100)
 			if (self.configClick) then
 				self.configClick()
@@ -564,26 +658,35 @@ function XPerl_Options_LoadSettings_Initialize()
 end
 
 -- XPerl_Options_Anchor_OnLoad
+-- Every anchor dropdown used to share one MyIndex, which is also the LoadSettings menu's
+-- index, and Initialize read its current value from XPerl_Options_Party_Anchor by name.
+-- So an anchor dropdown displayed whichever value some other dropdown had set last rather
+-- than its own. Each dropdown now reads and shows its own varGet().
 function XPerl_Options_Anchor_OnLoad(self)
 	self.displayMode = "MENU"
 	UIDropDownMenu_Initialize(self, XPerl_Options_Anchor_Initialize)
-	UIDropDownMenu_SetSelectedID(self, MyIndex, 1)
 	UIDropDownMenu_SetWidth(self, 100)
+
+	local current = (self.varGet and self.varGet()) or "TOP"
+	for k,v in pairs(XPerl_AnchorList) do
+		if (v == current) then
+			UIDropDownMenu_SetSelectedID(self, k, 1)
+			break
+		end
+	end
 end
 
--- XPerl_Options_Anchor_OnLoad
-function XPerl_Options_Anchor_Initialize()
-	local info
-	local current = XPerl_Options_Party_Anchor.varGet() or "TOP"
+-- XPerl_Options_Anchor_Initialize
+-- UIDropDownMenu_Initialize passes the dropdown being built as the first argument.
+function XPerl_Options_Anchor_Initialize(self)
+	local dropdown = self or UIDROPDOWNMENU_OPEN_MENU
+	local current = (dropdown and dropdown.varGet and dropdown.varGet()) or "TOP"
 
 	for k,v in pairs(XPerl_AnchorList) do
-		info = {}
+		local info = {}
 		info.text = v
 		info.func = XPerl_Options_Anchor_OnClick
-
-		if (current == v) then
-			MyIndex = k
-		end
+		info.checked = (current == v)
 
 		UIDropDownMenu_AddButton(info)
 	end
@@ -594,8 +697,7 @@ function XPerl_Options_Anchor_OnClick(self)
 	local obj = UIDROPDOWNMENU_OPEN_MENU
 
 	obj.varSet(XPerl_AnchorList[self:GetID()])
-	MyIndex = self:GetID()
-	UIDropDownMenu_SetSelectedID(obj, MyIndex, 1)
+	UIDropDownMenu_SetSelectedID(obj, self:GetID(), 1)
 
 	XPerl_ProtectedCall(obj.setFunc)
 
@@ -1115,13 +1217,19 @@ function XPerl_Party_Reset()
 	end
 end
 
--- XPerl_Party_SmallRaid_Reset()
--- One-Group Raid Show decides which raid group frames get shown, so toggling it has to
--- refresh the raid side as well, not just the party frames
-function XPerl_Party_SmallRaid_Reset()
-	XPerl_Party_Reset()
+-- XPerl_Raid_InParty_Reset()
+-- Show In Party / Show When Solo change the secure headers' show attributes, so the raid
+-- frames have to re-read their attributes and not just redraw. Replaces the old
+-- XPerl_Party_SmallRaid_Reset, which existed for One-Group Raid Show.
+function XPerl_Raid_InParty_Reset()
+	if (XPerl_Raid_ChangeAttributes) then
+		XPerl_ProtectedCall(XPerl_Raid_ChangeAttributes)
+	end
 	if (XPerl_Raid_OptionActions) then
 		XPerl_Raid_OptionActions()
+	end
+	if (XPerl_Party_Reset) then
+		XPerl_Party_Reset()
 	end
 end
 
@@ -2445,6 +2553,10 @@ end
 local function XPerl_Raid_ConfigDefault(default)
 	default.raid = {
 		enable			= 1,
+		-- inParty puts the raid frames up for a 5 man group as well as a raid, which is what
+		-- replaced One-Group Raid Show. solo keeps them up when you aren't grouped at all.
+		inParty			= 1,
+--		solo			= nil,
 --		sortByClass		= nil,
 --		sortAlpha		= nil,
 		group = {1, 1, 1, 1, 1, 1, 1, 1, 1},
@@ -2464,15 +2576,24 @@ local function XPerl_Raid_ConfigDefault(default)
 		percent			= 1,
 		scale			= 0.8,
 		spacing			= 0,
+		-- Buffs and debuffs are independent now, each with its own row. The old right/inside
+		-- pair is gone; anchor covers what it used to, and both types can be on at once.
+		-- perRow is deliberately absent: with no value the icons wrap to fit the frame at
+		-- whatever size is chosen. Set it to pin a specific number per row instead.
 		buffs = {
---			enable		= nil,
+			enable		= 1,
 			castable	= 0,
-			right		= 1,
-			inside		= 1,
+			anchor		= "BOTTOM",
+			size		= 10,
+			max		= 8,
 --			untilDebuffed	= nil,			-- 2.1.3
 		},
 		debuffs = {
 			enable		= 1,
+			curable		= 0,
+			anchor		= "TOP",
+			size		= 12,
+			max		= 8,
 		},
 --		mana			= nil,
 		healerMode = {
@@ -2571,7 +2692,7 @@ function XPerl_Custom_Config_OnShow(self)
 	end
 	if (not XPerlDB.custom.zones) then
 		if (not XPerl_Custom) then
-			LoadAddOn("XPerl_CustomHighlight")
+			XPerl_ModuleLoad("XPerl_CustomHighlight")
 		end
 		if (XPerl_Custom) then
 			XPerl_Custom:SetDefaultZoneData()
@@ -2997,6 +3118,25 @@ if (XPerl_UpgradeSettings) then
 		end
 
 		local playerClass = select(2, UnitClass("player"))
+
+		-- Raid buffs and debuffs were one shared icon row, so only one of them could be on,
+		-- and it was placed with the right/inside pair. A config still carrying those keys
+		-- predates the split: turn both rows on and give them the new below/above layout.
+		-- The old placement isn't carried over - Buff/Debuff Position on the Raid tab sets it.
+		if (old.raid and old.raid.buffs and (old.raid.buffs.right ~= nil or old.raid.buffs.inside ~= nil)) then
+			old.raid.buffs.right, old.raid.buffs.inside = nil, nil
+			old.raid.buffs.enable = 1
+			old.raid.buffs.anchor = "BOTTOM"
+			old.raid.buffs.size = old.raid.buffs.size or 10
+			old.raid.buffs.max = old.raid.buffs.max or 8
+
+			old.raid.debuffs = old.raid.debuffs or {}
+			old.raid.debuffs.enable = 1
+			old.raid.debuffs.curable = old.raid.debuffs.curable or 0
+			old.raid.debuffs.anchor = "TOP"
+			old.raid.debuffs.size = old.raid.debuffs.size or 12
+			old.raid.debuffs.max = old.raid.debuffs.max or 8
+		end
 
 		if (type(oldVersion) == "string") then
 			for k,v in pairs(flist) do

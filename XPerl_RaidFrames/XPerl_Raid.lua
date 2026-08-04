@@ -82,7 +82,10 @@ function XPerl_Raid_OnLoad(self)
 			"UNIT_HEALTH", "UNIT_MAXHEALTH", "UNIT_NAME_UPDATE", "PLAYER_FLAGS_CHANGED",
 			"UNIT_COMBAT", "UNIT_SPELLCAST_START", "UNIT_SPELLCAST_STOP", "UNIT_SPELLCAST_FAILED",
 			"UNIT_SPELLCAST_INTERRUPTED", "READY_CHECK", "READY_CHECK_CONFIRM", "READY_CHECK_FINISHED",
-			"RAID_TARGET_UPDATE", "PLAYER_LOGIN"
+			"RAID_TARGET_UPDATE", "PLAYER_LOGIN",
+			-- Needed now the raid frames can be fed by the party: without it, joining or
+			-- leaving a party never re-ran the roster or the show/hide check.
+			"PARTY_MEMBERS_CHANGED"
 			}
 	for i,event in pairs(events) do
 		self:RegisterEvent(event)
@@ -676,22 +679,55 @@ local function XPerl_Raid_HighlightCallback(self, updateGUID)
 	end
 end
 
--- GetBuffButton(self, buffnum, debuff, createIfAbsent)
--- debuff must be 1 or 0, as it's used in size calc
-local buffIconCount = 0
-local function GetBuffButton(self, buffnum, createIfAbsent)
+----------------------------------------------------------------------
+-- Aura icons
+--
+-- Buffs and debuffs used to share one icon row, so the options could only ever turn on one
+-- of them - the old GetShowCast() returned "b" or "d" and buffs always won. A healer needs
+-- both at once, so each type now gets its own container, its own enable, anchor, icon size
+-- and icons-per-row, and wraps onto further rows once that limit is reached.
+--
+-- The old buffs.right and buffs.inside options are retired by this. "inside" narrowed the
+-- stats frame to fit icons within the frame width, which cannot work once two independent
+-- rows can be anchored anywhere; anchor = "LEFT"/"RIGHT" replaces the outside part of it.
+----------------------------------------------------------------------
 
-	local button = self.buffFrame.buff and self.buffFrame.buff[buffnum]
+-- GetAuraContainer(self, auraType)
+-- buffFrame comes from the XML. debuffFrame is created on demand so an existing layout
+-- doesn't pay for it, and so this needs no XML change. Both parent the raid frame itself,
+-- which XPerl_Raid_SetBuffTooltip relies on to walk back up to the unit.
+local function GetAuraContainer(self, auraType)
+	if (auraType == "b") then
+		return self.buffFrame
+	end
+
+	if (not self.debuffFrame) then
+		local f = CreateFrame("Frame", nil, self)
+		f:SetFrameStrata("MEDIUM")
+		f:SetWidth(10)
+		f:SetHeight(10)
+		f:Hide()
+		self.debuffFrame = f
+	end
+
+	return self.debuffFrame
+end
+
+-- GetAuraButton(container, index, createIfAbsent, auraType)
+local buffIconCount = 0
+local function GetAuraButton(container, index, createIfAbsent, auraType)
+
+	local button = container.buff and container.buff[index]
 
 	if (not button and createIfAbsent) then
 		buffIconCount = buffIconCount + 1
-		button = CreateFrame("Button", "XPerlRBuff"..buffIconCount, self.buffFrame, "XPerl_BuffTemplate")
-		button:SetID(buffnum)
+		button = CreateFrame("Button", "XPerlRBuff"..buffIconCount, container, "XPerl_BuffTemplate")
+		button:SetID(index)
 
-		if (not self.buffFrame.buff) then
-			self.buffFrame.buff = {}
+		if (not container.buff) then
+			container.buff = {}
 		end
-		self.buffFrame.buff[buffnum] = button
+		container.buff[index] = button
 
 		button:SetHeight(10)
 		button:SetWidth(10)
@@ -705,16 +741,125 @@ local function GetBuffButton(self, buffnum, createIfAbsent)
 					end)
 	end
 
+	if (button) then
+		-- The tooltip needs to know which kind of aura this icon is showing, now that a
+		-- frame can have both kinds on screen at the same time.
+		button.auraType = auraType
+	end
+
 	return button
 end
 
--- GetShowCast
-local function GetShowCast(self)
-	if (rconf.buffs.enable) then
-		return "b", (rconf.buffs.castable == 1) and "RAID"
-	elseif (rconf.debuffs.enable) then
-		return "d", (rconf.buffs.castable == 1) and "RAID"
+-- auraAnchors
+-- Where the container sits against the stats frame, and which way the icons grow from it.
+-- dx/dy move along a row, and rows stack away from the frame, so a second row never lands
+-- on top of the health bar. wrapAcross means rows run vertically (LEFT/RIGHT anchors).
+local auraAnchors = {
+	BOTTOM	= {point = "TOPLEFT",		relPoint = "BOTTOMLEFT",	x = 0,	y = -1,	dx = 1,	dy = -1,	wrapAcross = false},
+	TOP	= {point = "BOTTOMLEFT",	relPoint = "TOPLEFT",		x = 0,	y = 1,	dx = 1,	dy = 1,		wrapAcross = false},
+	RIGHT	= {point = "TOPLEFT",		relPoint = "TOPRIGHT",		x = 1,	y = 0,	dx = 1,	dy = -1,	wrapAcross = true},
+	LEFT	= {point = "TOPRIGHT",		relPoint = "TOPLEFT",		x = -1,	y = 0,	dx = -1, dy = -1,	wrapAcross = true},
+}
+
+-- LayoutAuras(self, container, count, aconf)
+local function LayoutAuras(self, container, count, aconf)
+	local a = auraAnchors[aconf.anchor] or auraAnchors.BOTTOM
+	local size = aconf.size or 10
+
+	-- How many fit before wrapping. Derived from the frame rather than configured, so
+	-- raising the icon size just means fewer per row instead of icons hanging off the
+	-- side. perRow is still honoured if something sets it explicitly.
+	local perRow = aconf.perRow
+	if (not perRow) then
+		local across = a.wrapAcross and self.statsFrame:GetHeight() or self.statsFrame:GetWidth()
+		perRow = floor((across or 80) / size)
 	end
+	if (perRow < 1) then
+		perRow = 1
+	end
+
+	container:ClearAllPoints()
+	container:SetPoint(a.point, self.statsFrame, a.relPoint, a.x, a.y)
+
+	for i = 1, count do
+		local button = container.buff[i]
+		local row = floor((i - 1) / perRow)
+		local col = (i - 1) % perRow
+
+		button:SetWidth(size)
+		button:SetHeight(size)
+		button:ClearAllPoints()
+
+		local x, y
+		if (a.wrapAcross) then
+			x, y = row * size * a.dx, col * size * a.dy
+		else
+			x, y = col * size * a.dx, row * size * a.dy
+		end
+
+		button:SetPoint(a.point, container, a.point, x, y)
+	end
+end
+
+-- HideAuras(self, auraType)
+-- Only touches a container that already exists, so turning debuffs off never creates one.
+local function HideAuras(self, auraType)
+	local container = (auraType == "b") and self.buffFrame or self.debuffFrame
+	if (container and container:IsShown()) then
+		container:Hide()
+	end
+end
+
+-- UpdateAuraType(self, auraType, aconf, filter)
+-- Returns how many icons ended up shown.
+local function UpdateAuraType(self, auraType, aconf, filter)
+	local partyid = self.partyid
+	local container = GetAuraContainer(self, auraType)
+	local maxIcons = aconf.max or 8
+	local count = 0
+
+	for index = 1, maxIcons do
+		local name, rank, tex
+		if (auraType == "b") then
+			name, rank, tex = XPerl_UnitBuff(partyid, index, filter, true)
+		else
+			name, rank, tex = XPerl_UnitDebuff(partyid, index, filter, true)
+		end
+
+		local button = GetAuraButton(container, index, tex, auraType)	-- 'tex' flags whether to create icon
+		if (button) then
+			if (tex) then
+				count = count + 1
+				button.icon:SetTexture(tex)
+				if (not button:IsShown()) then
+					button:Show()
+				end
+			elseif (button:IsShown()) then
+				button:Hide()
+			end
+		end
+	end
+
+	-- Anything left over from a previously larger maximum
+	if (container.buff) then
+		for index = maxIcons + 1, #container.buff do
+			local button = container.buff[index]
+			if (button and button:IsShown()) then
+				button:Hide()
+			end
+		end
+	end
+
+	if (count > 0) then
+		LayoutAuras(self, container, count, aconf)
+		if (not container:IsShown()) then
+			container:Show()
+		end
+	elseif (container:IsShown()) then
+		container:Hide()
+	end
+
+	return count
 end
 
 -- UpdateBuffs
@@ -724,121 +869,37 @@ local function UpdateBuffs(self)
 		return
 	end
 
-	local bf = self.buffFrame
-
 	XPerl_CheckDebuffs(self, partyid)
 	XPerl_ColourFriendlyUnit(self.nameFrame.text, partyid)
 
-	local buffCount = 0
-	local maxBuff = 8 - ((abs(1 - (rconf.mana or 0)) * 2) * (rconf.buffs.right or 0))
+	-- Icons anchor outside the stats frame now, so its width is no longer negotiable. This has
+	-- to happen BEFORE the aura layout: LayoutAuras measures this frame to work out how many
+	-- icons fit per row, and a config upgrading from the old "Buffs Inside" mode arrives here
+	-- with a 60 or 70 wide stats frame, which would wrap one update's worth of icons early.
+	self.statsFrame:SetWidth(80)
 
-	local show, cureCast = GetShowCast(self)
-	self.debuffsForced = nil
-	if (show) then
-		if (show == "b") then
-			if (rconf.buffs.untilDebuffed) then
-				local name, rank, buff = XPerl_UnitDebuff(partyid, 1, cureCast, true)
-				if (name) then
-					self.debuffsForced = true
-					show = "d"
-				end
-			end
-		end
+	local showBuffs = rconf.buffs.enable
+	local showDebuffs = rconf.debuffs.enable
 
-		for buffnum=1,maxBuff do
-			local name, rank, buff
-			if (show == "b") then
-				name, rank, buff = XPerl_UnitBuff(partyid, buffnum, cureCast, true)
-			else
-				name, rank, buff = XPerl_UnitDebuff(partyid, buffnum, cureCast, true)
-			end
-			local button = GetBuffButton(self, buffnum, buff)	-- 'buff' flags whether to create icon
-			if (button) then
-				if (buff) then
-					buffCount = buffCount + 1
-
-					button.icon:SetTexture(buff)
-					if (not button:IsShown()) then
-						button:Show()
-					end
-				else
-					if (button:IsShown()) then
-						button:Hide()
-					end
-				end
-			end
-		end
-		for buffnum=maxBuff+1,8 do
-			local button = bf.buff and bf.buff[buffnum]
-			if (button) then
-				if (button:IsShown()) then
-	 				button:Hide()
-				end
-			end
+	-- untilDebuffed only existed because one row had to serve both types. With both able to
+	-- show at once it has nothing left to do, so it now only applies when debuffs are off.
+	-- The old debuffsForced flag went with it - the tooltip reads the icon's own auraType.
+	if (showBuffs and not showDebuffs and rconf.buffs.untilDebuffed) then
+		if (XPerl_UnitDebuff(partyid, 1, (rconf.debuffs.curable == 1) and "RAID", true)) then
+			showBuffs, showDebuffs = nil, true
 		end
 	end
 
-	if (buffCount > 0) then
-		bf:ClearAllPoints()
-		if (not bf:IsShown()) then
-			bf:Show()
-		end
-		local id = self:GetID()
-
-		if (rconf.buffs.right) then
-			bf:SetPoint("BOTTOMLEFT", self.statsFrame, "BOTTOMRIGHT", -1, 1)
-
-			if (rconf.buffs.inside) then
-				if (buffCount > 3 + (rconf.mana or 0)) then
-					self.statsFrame:SetWidth(60)
-				else
-					self.statsFrame:SetWidth(70)
-				end
-			else
-				self.statsFrame:SetWidth(80)
-			end
-
-			bf.buff[1]:ClearAllPoints()
-			bf.buff[1]:SetPoint("BOTTOMLEFT", 0, 0)
-			for i = 2,buffCount do
-				if (i > buffCount) then break end
-
-				local buffI = bf.buff[i]
-				buffI:ClearAllPoints()
-
-				if (i == 4 + (rconf.mana or 0)) then
-					if (rconf.buffs.inside) then
-						buffI:SetPoint("BOTTOMLEFT", 0, 0)
-						bf.buff[1]:SetPoint("BOTTOMLEFT", buffI, "BOTTOMRIGHT", 0, 0)
-					else
-						buffI:SetPoint("BOTTOMLEFT", bf.buff[i-(4 - abs(1 - (rconf.mana or 0)))], "BOTTOMRIGHT", 0, 0)
-					end
-				else
-					buffI:SetPoint("BOTTOMLEFT", bf.buff[i - 1], "TOPLEFT", 0, 0)
-				end
-			end
-		else
-			self.statsFrame:SetWidth(80)
-
-			bf:SetPoint("TOPLEFT", self.statsFrame, "BOTTOMLEFT", 0, 1)
-
-			local prevBuff
-			for i = 1,buffCount do
-	  			local buff = bf.buff[i]
-				buff:ClearAllPoints()
-				if (prevBuff) then
-					buff:SetPoint("TOPLEFT", prevBuff, "TOPRIGHT", 0, 0)
-				else
-					buff:SetPoint("TOPLEFT", 0, 0)
-				end
-				prevBuff = buff
-			end
-		end
+	if (showBuffs) then
+		UpdateAuraType(self, "b", rconf.buffs, (rconf.buffs.castable == 1) and "RAID")
 	else
-		self.statsFrame:SetWidth(80)
-		if (bf:IsShown()) then
-			bf:Hide()
-		end
+		HideAuras(self, "b")
+	end
+
+	if (showDebuffs) then
+		UpdateAuraType(self, "d", rconf.debuffs, (rconf.debuffs.curable == 1) and "RAID")
+	else
+		HideAuras(self, "d")
 	end
 
 	local myRoster = XPerl_Roster[UnitName(partyid)]
@@ -878,6 +939,271 @@ local function XPerl_Raid_UpdateCombat(self)
 	else
 		self.nameFrame.warningIcon:Hide()
 	end
+end
+
+----------------------------------------------------------------------
+-- Configuration test mode -- /xperl test
+--
+-- Two sample raid groups with sample buffs and debuffs, so the aura position, icon size and
+-- wrapping can be set up without waiting to be in a raid.
+--
+-- Secure group headers fill themselves from the real roster and cannot be handed made-up
+-- units, so this deliberately does not drive the real headers. It builds its own frames from
+-- the same XPerl_Raid_FrameTemplate and runs them through the same Setup1RaidFrame and the
+-- same LayoutAuras used by live frames, so icon size, wrap points, spacing, scale, anchor
+-- and the mana/percent options all preview exactly as they will look for real.
+--
+-- The frames are not secure: no unit attribute, so they can't be clicked, targeted or
+-- click-cast on, and anything needing a live unit isn't simulated (aggro, range fading,
+-- incoming heals, res and AFK flags). That's the trade for previewing without a raid.
+--
+-- Aura counts deliberately climb 1..8 across the ten frames, so wherever the wrap point
+-- falls at the chosen icon size, some frame on screen is showing it.
+----------------------------------------------------------------------
+
+local testMode
+local TestGroups = {}
+
+local testBuffIcons = {
+	"Interface\\Icons\\Spell_Holy_PowerWordShield",
+	"Interface\\Icons\\Spell_Holy_Renew",
+	"Interface\\Icons\\Spell_Holy_WordFortitude",
+	"Interface\\Icons\\Spell_Holy_DivineSpirit",
+	"Interface\\Icons\\Spell_Nature_Regeneration",
+	"Interface\\Icons\\Spell_Magic_MageArmor",
+	"Interface\\Icons\\Ability_Warrior_BattleShout",
+	"Interface\\Icons\\Spell_Nature_MagicImmunity",
+}
+
+local testDebuffIcons = {
+	"Interface\\Icons\\Spell_Shadow_ShadowWordPain",
+	"Interface\\Icons\\Spell_Shadow_CurseOfSargeras",
+	"Interface\\Icons\\Spell_Nature_NullifyPoison",
+	"Interface\\Icons\\Spell_Shadow_AbominationExplosion",
+	"Interface\\Icons\\Spell_Frost_FrostShock",
+	"Interface\\Icons\\Spell_Fire_Immolation",
+	"Interface\\Icons\\Spell_Shadow_UnholyFrenzy",
+	"Interface\\Icons\\Spell_Shadow_AntiShadow",
+}
+
+-- Ten sample members over two groups. hp/mp are fractions so the bars show a spread rather
+-- than ten full bars, which is what you actually want when judging colours and text.
+local testRoster = {
+	{
+		{name = "Firecracker",	class = "PRIEST",	hp = 1.00, mp = 0.74},
+		{name = "Slimesham",	class = "WARRIOR",	hp = 0.61, mp = 0.30},
+		{name = "Azula",	class = "MAGE",		hp = 0.88, mp = 0.55},
+		{name = "Bindu",	class = "DRUID",	hp = 0.34, mp = 0.91},
+		{name = "Greatspoon",	class = "PALADIN",	hp = 0.72, mp = 0.48},
+	},
+	{
+		{name = "Thornwick",	class = "ROGUE",	hp = 0.95, mp = 0.60},
+		{name = "Mossgrave",	class = "SHAMAN",	hp = 0.18, mp = 0.83},
+		{name = "Ashling",	class = "WARLOCK",	hp = 0.66, mp = 0.22},
+		{name = "Duskrend",	class = "DEATHKNIGHT",	hp = 1.00, mp = 0.40},
+		{name = "Pellworth",	class = "HUNTER",	hp = 0.47, mp = 0.68},
+	},
+}
+
+-- Where the sample group sits against its title frame, and which way the frames stack.
+-- Mirrors SetMainHeaderAttributes so the preview lines up with the real thing.
+local testAnchors = {
+	TOP	= {point = "TOP",	rel = "BOTTOM",		child = "TOP",		next = "BOTTOM",	x = 0,	y = -1},
+	BOTTOM	= {point = "BOTTOM",	rel = "TOP",		child = "BOTTOM",	next = "TOP",		x = 0,	y = 1},
+	LEFT	= {point = "TOPLEFT",	rel = "BOTTOMLEFT",	child = "LEFT",		next = "RIGHT",		x = 1,	y = 0},
+	RIGHT	= {point = "TOPRIGHT",	rel = "BOTTOMRIGHT",	child = "RIGHT",	next = "LEFT",		x = -1,	y = 0},
+}
+
+-- TestClassColour(class)
+-- Same source and brightness scaling XPerl_ColourHealthBar uses, so a customised class
+-- colour previews correctly rather than showing the stock Blizzard hue.
+local function TestClassColour(class)
+	local c = (CUSTOM_CLASS_COLORS or RAID_CLASS_COLORS)[class]
+	if (not c) then
+		return 0.5, 0.5, 0.5
+	end
+	local b = conf.colour.classbarBright or 1
+	return max(0, min(1, c.r * b)), max(0, min(1, c.g * b)), max(0, min(1, c.b * b))
+end
+
+-- TestAuras(frame, auraType, aconf, count, icons)
+-- Fills a container with 'count' sample icons and then hands off to the real LayoutAuras, so
+-- the wrapping and positioning here is not a reimplementation of it.
+local function TestAuras(frame, auraType, aconf, count, icons)
+	if (not aconf.enable or count < 1) then
+		HideAuras(frame, auraType)
+		return
+	end
+
+	local container = GetAuraContainer(frame, auraType)
+	local maxIcons = aconf.max or 8
+	if (count > maxIcons) then
+		count = maxIcons
+	end
+
+	for i = 1, maxIcons do
+		local tex = (i <= count) and icons[((i - 1) % #icons) + 1]
+		local button = GetAuraButton(container, i, tex, auraType)
+		if (button) then
+			if (tex) then
+				button.icon:SetTexture(tex)
+				button:Show()
+			elseif (button:IsShown()) then
+				button:Hide()
+			end
+		end
+	end
+
+	LayoutAuras(frame, container, count, aconf)
+	container:Show()
+end
+
+-- CreateTestGroup(group)
+local function CreateTestGroup(group)
+	local titleFrame = _G["XPerl_Raid_Title"..group]
+	if (not titleFrame) then
+		return
+	end
+
+	local holder = CreateFrame("Frame", nil, titleFrame)
+	holder:SetWidth(80)
+	holder:SetHeight(40)
+
+	local frames = {}
+	for i = 1, #testRoster[group] do
+		-- Same template the real frames use, so it carries the same art, bars, name frame and
+		-- buff container. No unit attribute is ever set on it.
+		local f = CreateFrame("Button", "XPerl_Raid_TestFrame"..group.."_"..i, holder, "XPerl_Raid_FrameTemplate")
+		f:SetID(i)
+		frames[i] = f
+	end
+
+	TestGroups[group] = {holder = holder, frames = frames}
+	return TestGroups[group]
+end
+
+-- XPerl_Raid_TestMode_Refresh
+-- Re-applies every option to the sample frames. Called whenever a raid option changes, so
+-- dragging the icon size slider updates the preview live.
+function XPerl_Raid_TestMode_Refresh()
+	if (not testMode) then
+		return
+	end
+
+	-- Creating the sample frames and resizing them are both off limits while the secure
+	-- environment is locked down, so leave the preview exactly as it is until combat ends.
+	if (InCombatLockdown()) then
+		return
+	end
+
+	local a = testAnchors[rconf.anchor] or testAnchors.TOP
+	local spacing = rconf.spacing or 0
+
+	for group = 1, #testRoster do
+		local g = TestGroups[group] or CreateTestGroup(group)
+
+		-- Never draw samples over a group that has real people in it. In a raid that means
+		-- test mode quietly does nothing for the groups you can already see, and in a party
+		-- group 1 stays real while group 2 shows you what a second group would look like.
+		--
+		-- Only when actually grouped. SetRaidRoster counts you alone as one member of group 1,
+		-- so testing this on SubgroupCounts by itself hid the group 1 samples while solo -
+		-- which is the main thing test mode is for.
+		local grouped = (GetNumRaidMembers() > 0 or GetNumPartyMembers() > 0)
+
+		if (g and grouped and (SubgroupCounts[group] or 0) > 0) then
+			g.holder:Hide()
+			g = nil
+		end
+
+		if (g) then
+			local titleFrame = _G["XPerl_Raid_Title"..group]
+
+			g.holder:ClearAllPoints()
+			g.holder:SetPoint(a.point, titleFrame, a.rel, 0, 0)
+			g.holder:Show()
+
+			for i, member in ipairs(testRoster[group]) do
+				local f = g.frames[i]
+
+				Setup1RaidFrame(f)
+
+				f:ClearAllPoints()
+				if (i == 1) then
+					f:SetPoint(a.child, g.holder, a.child, 0, 0)
+				else
+					f:SetPoint(a.child, g.frames[i - 1], a.next, spacing * a.x, spacing * a.y)
+				end
+
+				local sf = f.statsFrame
+				local r, gr, b = TestClassColour(member.class)
+
+				sf.healthBar:SetMinMaxValues(0, 1)
+				sf.healthBar:SetValue(conf.bar.inverse and (1 - member.hp) or member.hp)
+				if (conf.colour.classbar) then
+					sf.healthBar:SetStatusBarColor(r, gr, b)
+					if (sf.healthBar.bg) then
+						sf.healthBar.bg:SetVertexColor(r, gr, b, 0.25)
+					end
+				else
+					XPerl_SetSmoothBarColor(sf.healthBar, member.hp)
+				end
+				sf.healthBar.text:SetFormattedText(percD, member.hp * 100)
+
+				if (sf.manaBar) then
+					sf.manaBar:SetMinMaxValues(0, 1)
+					sf.manaBar:SetValue(member.mp)
+					sf.manaBar.text:SetFormattedText(percD, member.mp * 100)
+				end
+
+				f.nameFrame.text:SetText(member.name)
+				f.nameFrame.text:SetTextColor(r, gr, b)
+
+				-- 1..8 across the ten frames, so the wrap point is always visible somewhere
+				local count = ((group - 1) * #testRoster[group]) + i
+				count = ((count - 1) % 8) + 1
+
+				TestAuras(f, "b", rconf.buffs, count, testBuffIcons)
+				TestAuras(f, "d", rconf.debuffs, count, testDebuffIcons)
+
+				f:Show()
+			end
+		end
+	end
+end
+
+-- XPerl_Raid_TestMode
+-- on = true/false to set it, nil to toggle. Returns the state it ended up in.
+function XPerl_Raid_TestMode(on)
+	if (on == nil) then
+		on = not testMode
+	end
+
+	-- The sample frames inherit SecureActionButtonTemplate from the raid template, so they
+	-- can't be created or resized while the secure environment is locked down.
+	if (on and InCombatLockdown()) then
+		XPerl_Notice(XPERL_TEST_MODE_COMBAT)
+		return testMode and true or false
+	end
+
+	testMode = on and true or false
+
+	if (testMode) then
+		XPerl_Raid_TestMode_Refresh()
+		XPerl_Notice(XPERL_TEST_MODE_ON)
+	else
+		for group, g in pairs(TestGroups) do
+			g.holder:Hide()
+		end
+		XPerl_Notice(XPERL_TEST_MODE_OFF)
+	end
+
+	return testMode
+end
+
+-- XPerl_Raid_TestModeActive
+function XPerl_Raid_TestModeActive()
+	return testMode and true or false
 end
 
 -- XPerl_Raid_UpdatePlayerFlags(self)
@@ -952,7 +1278,10 @@ function XPerl_Raid_OnUpdate(self, elapsed)
 		if (XPerl_Custom) then
 			XPerl_Custom:UpdateUnits()
 		end
-		if (GetNumRaidMembers() == 0) then
+		-- Was "no raid members", which now throws away the roster SetRaidRoster just built
+		-- from the party and returns before the buff and range updates below ever run - so
+		-- party-mode raid frames would have drawn no aura icons at all.
+		if (not XPerl_Raid_ShouldShow()) then
 			ResArray = {}
 			XPerl_Roster = {}
 			buffUpdates = {}
@@ -1071,60 +1400,50 @@ function XPerl_Raid_UpdateDisplay(self)
 	end
 end
 
--- SubgroupOf
-local function SubgroupOf(unit)
-	for i = 1,GetNumRaidMembers() do
-		if (UnitIsUnit("raid"..i, unit)) then
-			return select(3, GetRaidRosterInfo(i))
-		end
+-- XPerl_Raid_Enabled
+-- Whether the raid frames are turned on for where we currently are.
+local function XPerl_Raid_Enabled()
+	local enable = rconf.enable
+	if (enable and select(2, IsInInstance()) == "pvp") then
+		enable = not rconf.notInBG
 	end
+	return enable
 end
 
--- PartyCoveredGroup
--- Which raid subgroup the party frames are standing in for, so we can hide just that one
--- group's raid frame and leave every other group showing as normal. Returns nil when the
--- party frames aren't covering anything. Sorting by class spreads our subgroup across all
--- the class frames, so there's no single frame to hide in that mode.
--- We read the group off party1 rather than assuming it's our own, so this stays right
--- whichever units the party header decides to show while we're in a raid. No party1 means
--- the party frames aren't showing anybody, and then we hide nothing -- better to leave a
--- group's raid frame up than to hide it with nothing standing in for it.
-local function PartyCoveredGroup()
-	if (fullyInitiallized and not rconf.sortByClass and UnitExists("party1")) then
-		if (XPerl_Party_ReplacesMyRaidGroup and XPerl_Party_ReplacesMyRaidGroup()) then
-			local group = SubgroupOf("party1")
-			if (group and group > 0) then
-				return group
-			end
-		end
+-- XPerl_Raid_ShouldShow
+-- The raid frames used to be for raids only, and "One-Group Raid Show" approached the
+-- problem from the other end by having the party frames stand in for your own subgroup.
+-- That was backwards for anyone who only wants to look at raid frames, so the raid frames
+-- now cover a party too and the party frames can simply be turned off.
+--
+-- In a raid this is unchanged. In a party it follows the Raid tab's "Show In Party", and
+-- with nobody grouped at all it follows "Show When Solo".
+function XPerl_Raid_ShouldShow()
+	if (GetNumRaidMembers() > 0) then
+		return true
 	end
-end
 
--- XPerl_Raid_HasOtherGroups
--- True when the raid has members outside our own subgroup, i.e. there is something left
--- for the raid frames to show once the party frames have covered our group.
-function XPerl_Raid_HasOtherGroups()
-	local covered = PartyCoveredGroup() or myGroup
-	for i = 1,8 do
-		if (i ~= covered and (SubgroupCounts[i] or 0) > 0) then
-			return true
-		end
+	if (not rconf or not rconf.inParty or not XPerl_Raid_Enabled()) then
+		return false
 	end
+
+	if (GetNumPartyMembers() > 0) then
+		return true
+	end
+
+	return rconf.solo and true or false
 end
 
 -- HideShowRaid
 function XPerl_Raid_HideShowRaid()
-	local partyGroup = PartyCoveredGroup()
+	local enable = XPerl_Raid_Enabled()
 
-	local enable = rconf.enable
-	if (enable) then
-		if (select(2, IsInInstance()) == "pvp") then
-			enable = not rconf.notInBG
-		end
-	end
-
+	-- Nothing special is needed for party mode here. The secure header reports every party
+	-- member as subgroup 1 with their real class, so group 1's filter already matches the
+	-- whole party and groups 2-8 match nobody - they show as empty and their titles are
+	-- suppressed by the RaidGroupCounts check in XPerl_RaidTitles.
 	for i = 1,WoWclassCount do
-		if (rconf.group[i] == 1 and enable and (i < 9 or rconf.sortByClass) and i ~= partyGroup) then
+		if (rconf.group[i] == 1 and enable and (i < 9 or rconf.sortByClass)) then
 			if (not raidHeaders[i]:IsShown()) then
 				raidHeaders[i]:Show()
 			end
@@ -1183,7 +1502,7 @@ function XPerl_Raid_Events:PLAYER_ENTERING_WORLDsmall()
 	XPerl_Raid_UpdateDisplayAll()
 
 	if (IsInInstance()) then
-		LoadAddOn("XPerl_CustomHighlight")
+		XPerl_ModuleLoad("XPerl_CustomHighlight")
 	end
 end
 
@@ -1197,12 +1516,12 @@ function XPerl_Raid_Events:PLAYER_ENTERING_WORLD()
 	raidLoaded = true
 	rosterUpdated = nil
 
-	if (GetNumRaidMembers() > 0) then
+	if (XPerl_Raid_ShouldShow()) then
 		XPerl_Raid_Frame:Show()
 	end
 
 	if (IsInInstance()) then
-		LoadAddOn("XPerl_CustomHighlight")
+		XPerl_ModuleLoad("XPerl_CustomHighlight")
 	end
 
 	XPerl_Raid_Events.PLAYER_ENTERING_WORLD = XPerl_Raid_Events.PLAYER_ENTERING_WORLDsmall
@@ -1237,8 +1556,21 @@ do
 	function XPerl_Raid_Events:RAID_ROSTER_UPDATE()
 		rosterUpdated = true		-- Many roster updates can occur during 1 video frame, so we'll check everything at end of last one
 		BuildGuidMap()
-		if (GetNumRaidMembers() > 0) then
+		if (XPerl_Raid_ShouldShow()) then
 			XPerl_Raid_Frame:Show()
+		end
+	end
+
+	-- PARTY_MEMBERS_CHANGED
+	-- The secure headers re-fill themselves on this, but our own roster and the show/hide
+	-- decision need it too now that a party can drive the raid frames.
+	function XPerl_Raid_Events:PARTY_MEMBERS_CHANGED()
+		rosterUpdated = true
+		BuildGuidMap()
+		if (XPerl_Raid_ShouldShow()) then
+			XPerl_Raid_Frame:Show()
+		else
+			XPerl_Raid_Frame:Hide()
 		end
 	end
 	
@@ -1622,6 +1954,46 @@ local function SetRaidRoster()
 		SubgroupCounts[i] = 0
 	end
 
+	-- In a party the raid frames are fed by the party, and GetRaidRosterInfo has nothing to
+	-- say about it. Walk the party instead so the roster still gets built - the AFK/DND,
+	-- name colouring and res tracking all key off XPerl_Roster, and without this they would
+	-- silently do nothing on party-mode raid frames.
+	if (GetNumRaidMembers() == 0) then
+		for i = 0,GetNumPartyMembers() do
+			local unit = (i == 0) and "player" or ("party"..i)
+			local name = UnitExists(unit) and UnitName(unit)
+
+			if (name) then
+				local fileName = select(2, UnitClass(unit))
+
+				RaidPositions[name] = unit
+				myGroup = 1
+				SubgroupCounts[1] = (SubgroupCounts[1] or 0) + 1
+
+				if (rconf.sortByClass) then
+					for j = 1,WoWclassCount do
+						if (rconf.class[j].name == fileName and rconf.class[j].enable) then
+							RaidGroupCounts[j] = RaidGroupCounts[j] + 1
+							break
+						end
+					end
+				else
+					RaidGroupCounts[1] = RaidGroupCounts[1] + 1
+				end
+
+				local r = XPerl_Roster[name]
+				if (r) then
+					NewRoster[name] = r
+					XPerl_Roster[name] = nil
+					r.afk = UnitIsAFK(unit) and GetTime() or nil
+					r.dnd = UnitIsDND(unit) and GetTime() or nil
+				else
+					NewRoster[name] = new()
+				end
+			end
+		end
+	end
+
 	for i = 1,GetNumRaidMembers() do
 		local name, rank, group, level, class, fileName = GetRaidRosterInfo(i)
 
@@ -1660,7 +2032,7 @@ local function SetRaidRoster()
 		end
 	end
 
-	if (GetNumRaidMembers() > 0) then
+	if (XPerl_Raid_ShouldShow()) then
 		XPerl_Raid_Frame:Show()
 	else
 		XPerl_Raid_Frame:Hide()
@@ -1680,9 +2052,15 @@ function XPerl_Raid_Position(self)
 	SetRaidRoster()
 	XPerl_RaidTitles()
 
-	if (conf.party.smallRaid and fullyInitiallized and not InCombatLockdown()) then
+	-- Was gated on the old One-Group Raid Show option, since that was the only thing that
+	-- could change which headers should be up. Party mode can too, so this now always runs.
+	if (fullyInitiallized and not InCombatLockdown()) then
 		XPerl_Raid_HideShowRaid()
 	end
+
+	-- Roster just changed, so which groups have real people in them may have too. Lets test
+	-- mode stand down for a group that has filled up, without needing to be toggled off.
+	XPerl_Raid_TestMode_Refresh()
 end
 
 --------------------
@@ -1701,8 +2079,6 @@ end
 
 -- XPerl_RaidTitles
 function XPerl_RaidTitles()
-	local partyGroup = PartyCoveredGroup()
-
 	local c
 	for i = 1,WoWclassCount do
 		local confClass = rconf.class[i].name
@@ -1727,14 +2103,9 @@ function XPerl_RaidTitles()
 			titleFrame:SetFormattedText(XPERL_RAID_GROUP, i)
 		end
 
-		local enable = rconf.enable
-		if (enable) then
-			if (select(2, IsInInstance()) == "pvp") then
-				enable = not rconf.notInBG
-			end
-		end
+		local enable = XPerl_Raid_Enabled()
 
-		if (XPerlLocked == 0 or (RaidGroupCounts[i] > 0 and enable and rconf.group[i] and i ~= partyGroup)) then
+		if (XPerlLocked == 0 or (RaidGroupCounts[i] > 0 and enable and rconf.group[i])) then
 			if (XPerlLocked == 0 or rconf.titles) then
 				if (not titleFrame:IsShown()) then
 					titleFrame:Show()
@@ -1816,14 +2187,12 @@ function XPerl_Raid_SetBuffTooltip(self)
 
 			GameTooltip:SetOwner(self,"ANCHOR_BOTTOMRIGHT",30,0)
 
-			local show, cureCast = GetShowCast(parentUnit)
-			if (parentUnit.debuffsForced) then
-				show = "d"
-			end
-			if (show == "b") then
-				XPerl_TooltipSetUnitBuff(GameTooltip, partyid, self:GetID(), cureCast, true)
-			elseif (show == "d") then
-				XPerl_TooltipSetUnitDebuff(GameTooltip, partyid, self:GetID(), cureCast, true)
+			-- Which kind of aura this icon is showing is now a property of the icon, since
+			-- a frame can have a buff row and a debuff row up at the same time.
+			if (self.auraType == "b") then
+				XPerl_TooltipSetUnitBuff(GameTooltip, partyid, self:GetID(), (rconf.buffs.castable == 1) and "RAID", true)
+			elseif (self.auraType == "d") then
+				XPerl_TooltipSetUnitDebuff(GameTooltip, partyid, self:GetID(), (rconf.debuffs.curable == 1) and "RAID", true)
 			end
 		end
 	end
@@ -2110,6 +2479,19 @@ local function SetMainHeaderAttributes(self)
 		self:SetAttribute("sortMethod", nil)
 	end
 
+	-- Raid frames in a party.
+	-- SecureRaidGroupHeaderTemplate is SecureGroupHeaderTemplate plus showRaid = true, and
+	-- nothing else, so these headers ignored a party entirely. Adding showParty makes the
+	-- same headers fill from the party when there is no raid; showRaid is still checked
+	-- first, so a real raid behaves exactly as before.
+	--
+	-- showPlayer is what puts you in the list - in a raid you are already a raid member, so
+	-- it only has an effect here. showSolo covers being in no group at all, where the party
+	-- count is zero and the header would otherwise have nothing to show.
+	self:SetAttribute("showParty", rconf.inParty and true or false)
+	self:SetAttribute("showPlayer", rconf.inParty and true or false)
+	self:SetAttribute("showSolo", (rconf.inParty and rconf.solo) and true or false)
+
 	self:SetAttribute("point", rconf.anchor)
 	self:SetAttribute("minWidth", 80)
 	self:SetAttribute("minHeight", 10)
@@ -2237,7 +2619,7 @@ function XPerl_Raid_Set_Bits(self)
 	end
 	SkipHighlightUpdate = nil
 
-	if (GetNumRaidMembers() > 0) then
+	if (XPerl_Raid_ShouldShow()) then
 		XPerl_Raid_Frame:Show()
 	end
 end

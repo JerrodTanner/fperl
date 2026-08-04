@@ -668,24 +668,18 @@ local function XPerl_Party_UpdateRange(self, overrideUnit)
 	end
 end
 
--- XPerl_Party_ReplacesMyRaidGroup
--- With One-Group Raid Show enabled the party frames stand in for our own raid subgroup,
--- regardless of how big the raid is or how many groups it has. The raid frame for that one
--- subgroup is hidden, and the remaining groups carry on showing as raid frames.
-function XPerl_Party_ReplacesMyRaidGroup()
-	if (pconf and pconf.smallRaid and GetNumRaidMembers() > 0) then
-		return true
-	end
-end
-
 -- CheckRaid
+-- XPerl_Party_ReplacesMyRaidGroup() used to live here, for One-Group Raid Show: the party
+-- frames stood in for your own raid subgroup and the raid frames hid that one group. That
+-- is gone - the raid frames now cover a party themselves (Raid tab, "Show In Party"), so
+-- whether the party frames appear in a raid is once again just "Show In Raid".
 local function CheckRaid()
 	if (InCombatLockdown()) then
 		tinsert(XPerl_OutOfCombatQueue, CheckRaid)
 	else
 		partyAnchor:StopMovingOrSizing()
 
-		if (not pconf or (pconf.inRaid or pconf.smallRaid or GetNumRaidMembers() == 0)) then
+		if (not pconf or (pconf.inRaid or GetNumRaidMembers() == 0)) then
 			if (not partyHeader:IsShown()) then
 				partyHeader:Show()
 			end

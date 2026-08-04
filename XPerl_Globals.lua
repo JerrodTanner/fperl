@@ -39,9 +39,9 @@ end
 
 do
 	local function DisableOther(modName, issues)
-		local name, title, notes, enabled = GetAddOnInfo(modName)
+		local name, title, notes, enabled = XPerl_ModuleGetInfo(modName)
 		if (name and enabled) then
-			DisableAddOn(modName)
+			XPerl_ModuleDisable(modName)
 			local notice = "Disabled '"..modName.."' addon. It is not compatible or needed with X-Perl"
 			if (issues) then
 				notice = notice..", and creates display issues."
@@ -53,14 +53,14 @@ do
 	DisableOther("PerlButton")		-- PerlButton was made for Nymbia's Perl UnitFrames. We have our own minimap button
 	DisableOther("WT_ZoningTimeFix", true)
 
-	local name,_,_,enabled,loadable = GetAddOnInfo("XPerl_Party")
+	local name,_,_,enabled,loadable = XPerl_ModuleGetInfo("XPerl_Party")
 	if (enabled) then
 		DisableOther("CT_PartyBuffs", true)
 	end
 
-	local name,_,_,enabled,loadable = GetAddOnInfo("XPerl_GrimReaper")
+	local name,_,_,enabled,loadable = XPerl_ModuleGetInfo("XPerl_GrimReaper")
 	if (enabled) then
-		DisableAddOn("XPerl_GrimReaper")
+		XPerl_ModuleDisable("XPerl_GrimReaper")
 		XPerl_Notice("Disabled XPerl_GrimReaper. This has been replaced by a standalone version 'GrimReaper' available on the WoW Ace Updater or from files.wowace.com")
 	end
 end
@@ -449,9 +449,9 @@ end
 
 -- XPerl_LoadOptions
 function XPerl_LoadOptions()
-	if (not IsAddOnLoaded("XPerl_Options")) then
-		EnableAddOn("XPerl_Options")
-		local ok, reason = LoadAddOn("XPerl_Options")
+	if (not XPerl_ModuleLoaded("XPerl_Options")) then
+		XPerl_ModuleEnable("XPerl_Options")
+		local ok, reason = XPerl_ModuleLoad("XPerl_Options")
 
 		if (not ok) then
 			XPerl_Notice("Failed to load X-Perl Options ("..tostring(reason)..")")

@@ -350,16 +350,12 @@ end
 
 -- XPerl_RaidPets_HideShow
 function XPerl_RaidPets_HideShow()
-	-- The pet header covers every raid pet at once, it can't leave out our own subgroup the
-	-- way the group frames can. So it only hides when the party pet frames already cover
-	-- everyone, i.e. when our group is the only one with members in it.
-	local coveredByParty
-	if (XPerl_Party_ReplacesMyRaidGroup and XPerl_Raid_HasOtherGroups) then
-		if (conf.party.smallRaid and XPerl_Party_ReplacesMyRaidGroup() and not XPerl_Raid_HasOtherGroups()) then
-			coveredByParty = true
-		end
-	end
-
+	-- The One-Group Raid Show coupling used to live here: the pet header covers every raid
+	-- pet at once and can't leave out one subgroup, so it hid itself whenever the party pet
+	-- frames already covered everybody. With that option gone there is nothing to avoid.
+	--
+	-- Raid pets stay raid-only. The party pet module already covers pets in a party, and
+	-- showing them here as well would double up for anyone running both.
 	local on = (GetNumRaidMembers() > 0 and rconf.enable)
 
 	local events = {"UNIT_HEALTH", "UNIT_MAXHEALTH", "UNIT_NAME_UPDATE", "UNIT_AURA"}
@@ -371,7 +367,7 @@ function XPerl_RaidPets_HideShow()
 		end
 	end
 
-	if (rconf.enable and not coveredByParty) then
+	if (rconf.enable) then
 		XPerl_Raid_GrpPets:Show()
 		XPerl_RaidPets_Frame:Show()
 		if (GetNumRaidMembers() > 0) then

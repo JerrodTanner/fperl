@@ -1722,10 +1722,9 @@
 				self:RegisterEvent("PLAYER_REGEN_DISABLED")
 				XPerl_Options_InCombatChange(UnitAffectingCombat("player"))
 
-				-- Scaling sliders load before XPerlDB exists, so refresh their ranges now
-				if (XPerlDB and XPerlDB.maximumScale) then
-					XPerl_Options_MaxScaleSet()
-				end
+				-- Scaling sliders load before XPerlDB exists, so refresh their ranges now.
+				-- Refresh, not Set - opening this window must not rewrite saved scales.
+				XPerl_Options_MaxScaleRefresh()
 
 				if (not self.initDone) then
 					local tabs = {XPerl_Options_Tab1}
@@ -2072,7 +2071,7 @@
 				</Anchors>
 				<Scripts>
 					<OnShow>
-						if (not IsAddOnLoaded("XPerl_PartyPet")) then
+						if (not XPerl_ModuleLoaded("XPerl_PartyPet")) then
 							_G[self:GetName().."_ScalePets"]:Hide()
 						end
 					</OnShow>
@@ -4604,7 +4603,7 @@
 						self:SetScale(0.95)
 					</OnLoad>
 					<OnShow>
-						if (not IsAddOnLoaded("XPerl_ArcaneBar")) then
+						if (not XPerl_ModuleLoaded("XPerl_ArcaneBar")) then
 							local n = self:GetName().."_"
 							_G[n.."OldCastBar"]:Disable()
 							_G[n.."CastTime"]:Disable()
@@ -5078,7 +5077,7 @@
 					<Frame name="$parent_Buffs">
 						<Scripts>
 							<OnShow>
-								if (not IsAddOnLoaded("XPerl_PlayerBuffs")) then
+								if (not XPerl_ModuleLoaded("XPerl_PlayerBuffs")) then
 									self:Hide()
 								end
 							</OnShow>
@@ -5854,7 +5853,7 @@
 								self:SetScale(0.9)
 							</OnLoad>
 							<OnShow>
-								if (not IsAddOnLoaded("XPerl_TargetTarget")) then
+								if (not XPerl_ModuleLoaded("XPerl_TargetTarget")) then
 									self:Hide()
 								end
 							</OnShow>
@@ -6441,7 +6440,7 @@
 						self:SetScale(0.92)
 					</OnLoad>
 					<OnShow>
-						if (not IsAddOnLoaded("XPerl_ArcaneBar")) then
+						if (not XPerl_ModuleLoaded("XPerl_ArcaneBar")) then
 							local n = self:GetName().."_"
 							_G[n.."ArcaneBar"]:Disable()
 						end
@@ -7935,7 +7934,7 @@
 						self:SetScale(0.92)
 					</OnLoad>
 					<OnShow>
-						if (not IsAddOnLoaded("XPerl_ArcaneBar")) then
+						if (not XPerl_ModuleLoaded("XPerl_ArcaneBar")) then
 							local n = self:GetName().."_"
 							_G[n.."ArcaneBar"]:Disable()
 						end
@@ -9148,7 +9147,7 @@
 
 				<Scripts>
 					<OnShow>
-						if (not IsAddOnLoaded("XPerl_ArcaneBar")) then
+						if (not XPerl_ModuleLoaded("XPerl_ArcaneBar")) then
 							local n = self:GetName().."_"
 							_G[n.."ArcaneBar"]:Disable()
 						end
@@ -9499,26 +9498,14 @@
 						</Scripts>
 					</CheckButton>
 
-					<CheckButton name="$parent_SmallRaid" inherits="XPerlCheckButtonTemplate">
-						<Anchors>
-							<Anchor point="TOPLEFT" relativeTo="$parent_30yd" relativePoint="BOTTOMLEFT">
-								<Offset><AbsDimension x="0" y="6"/></Offset>
-							</Anchor>
-						</Anchors>
-						<Scripts>
-							<OnLoad>
-								XPerl_OptionsSetMyText(self, "XPERL_CONF_PARTY_SMALLRAID")
-								self.configBase = "XPerlDB.party"
-								self.configIndex = "smallRaid"
-								self.configClick = XPerl_Party_SmallRaid_Reset
-								XPerl_Options_RegisterProtected(self)
-							</OnLoad>
-						</Scripts>
-					</CheckButton>
+					<!-- "One-Group Raid Show" stood here. It had the party frames stand in for
+					     your own raid subgroup and hid that group's raid frame. Replaced by
+					     Show In Party on the Raid tab, which comes at it from the other end:
+					     the raid frames cover the party, so these can just be switched off. -->
 
 					<Frame name="$parent_Healer" inherits="XPerl_Options_HealerModeTemplate">
 						<Anchors>
-							<Anchor point="TOPLEFT" relativeTo="$parent_SmallRaid" relativePoint="BOTTOMLEFT">
+							<Anchor point="TOPLEFT" relativeTo="$parent_30yd" relativePoint="BOTTOMLEFT">
 								<Offset><AbsDimension x="0" y="6"/></Offset>
 							</Anchor>
 						</Anchors>
@@ -9867,7 +9854,7 @@
 								self:SetScale(0.9)
 							</OnLoad>
 							<OnShow>
-								if (not IsAddOnLoaded("XPerl_PartyPet")) then
+								if (not XPerl_ModuleLoaded("XPerl_PartyPet")) then
 									self:Hide()
 								end
 							</OnShow>
@@ -10155,10 +10142,51 @@
 						</Scripts>
 					</CheckButton>
 
+					<!-- Raid frames in a party. Replaces One-Group Raid Show on the Party tab:
+					     rather than the party frames covering your raid group, the raid
+					     frames cover the party, so the party frames can be turned off. -->
+					<CheckButton name="$parent_InParty" inherits="XPerlCheckButtonTemplate">
+						<Anchors>
+							<Anchor point="TOPLEFT" relativeTo="$parent_NotInBG" relativePoint="BOTTOMLEFT">
+								<Offset><AbsDimension x="-26" y="6"/></Offset>
+							</Anchor>
+						</Anchors>
+						<Scripts>
+							<OnLoad>
+								XPerl_OptionsSetMyText(self, "XPERL_CONF_RAID_INPARTY")
+								self.configBase = "XPerlDB.raid"
+								self.configIndex = "inParty"
+								self.configClick = XPerl_Raid_InParty_Reset
+								self.Validate = function()
+									XPerl_Options_EnableSibling(self, "ShowSolo")
+								end
+								XPerl_Options_RegisterProtected(self)
+							</OnLoad>
+						</Scripts>
+					</CheckButton>
+
+					<CheckButton name="$parent_ShowSolo" inherits="XPerlCheckButtonTemplate">
+						<Size><AbsDimension x="26" y="26"/></Size>
+						<Anchors>
+							<Anchor point="TOPLEFT" relativeTo="$parent_InParty" relativePoint="BOTTOMLEFT">
+								<Offset><AbsDimension x="0" y="6"/></Offset>
+							</Anchor>
+						</Anchors>
+						<Scripts>
+							<OnLoad>
+								XPerl_OptionsSetMyText(self, "XPERL_CONF_RAID_SHOWSOLO")
+								self.configBase = "XPerlDB.raid"
+								self.configIndex = "solo"
+								self.configClick = XPerl_Raid_InParty_Reset
+								XPerl_Options_RegisterProtected(self)
+							</OnLoad>
+						</Scripts>
+					</CheckButton>
+
 					<CheckButton name="$parent_RaidPets" inherits="XPerlCheckButtonTemplate">
 						<Anchors>
-							<Anchor point="TOP" relativeTo="$parent_NotInBG" relativePoint="BOTTOMLEFT">
-								<Offset><AbsDimension x="0" y="6"/></Offset>
+							<Anchor point="TOP" relativeTo="$parent_ShowSolo" relativePoint="BOTTOMLEFT">
+								<Offset><AbsDimension x="26" y="6"/></Offset>
 							</Anchor>
 						</Anchors>
 						<Scripts>
@@ -10203,7 +10231,7 @@
 						</Anchors>
 						<Scripts>
 							<OnShow>
-								if (IsAddOnLoaded("XPerl_RaidPets")) then
+								if (XPerl_ModuleLoaded("XPerl_RaidPets")) then
 									XPerl_Options_GetSibling("RaidPets",self):Show()
 									--XPerl_Options_GetSibling("Huntards",self):Show()
 									--XPerl_Options_GetSibling("Moredots",self):Show()
@@ -10341,13 +10369,12 @@
 								self.configBase = "XPerlDB.raid.buffs"
 								self.configIndex = "enable"
 								self.Validate = function()
-									XPerl_Options_EnableSibling(self, "Castable", "or", _G[self:GetParent():GetName().."_Debuffs"])
+									XPerl_Options_EnableSibling(self, "Castable")
+									XPerl_Options_EnableSibling(self, "BuffSize")
 								end
+								-- Buffs and debuffs are independent rows now, so ticking one no
+								-- longer unticks the other.
 								self.configClick = function()
-										if (XPerlDB.raid.buffs.enable) then
-											XPerlDB.raid.debuffs.enable = nil
-											_G[self:GetParent():GetName().."_Debuffs"]:SetChecked(0)
-										end
 										self.Validate()
 										XPerl_Raid_OptionActions()
 									end
@@ -10367,13 +10394,10 @@
 								self.configBase = "XPerlDB.raid.debuffs"
 								self.configIndex = "enable"
 								self.Validate = function()
-									XPerl_Options_EnableSibling(self, "Castable", "or", "Buffs")
+									XPerl_Options_EnableSibling(self, "Curable")
+									XPerl_Options_EnableSibling(self, "DebuffSize")
 								end
 								self.configClick = function()
-										if (XPerlDB.raid.debuffs.enable) then
-											XPerlDB.raid.buffs.enable = nil
-											_G[self:GetParent():GetName().."_Buffs"]:SetChecked(0)
-										end
 										self.Validate()
 										XPerl_Raid_OptionActions()
 									end
@@ -10398,46 +10422,165 @@
 						</Scripts>
 					</CheckButton>
 
-					<CheckButton name="$parent_BuffsRight" inherits="XPerlCheckButtonTemplate">
+					<!-- Debuffs get their own filter now that they no longer share the buff
+					     row, and with it the buff row's castable setting. -->
+					<CheckButton name="$parent_Curable" inherits="XPerlCheckButtonTemplate">
+						<Size><AbsDimension x="26" y="26"/></Size>
 						<Anchors>
-							<Anchor point="TOPRIGHT" relativeTo="$parent_Castable" relativePoint="BOTTOM">
+							<Anchor point="TOPLEFT" relativeTo="$parent_Castable" relativePoint="BOTTOMLEFT">
 								<Offset><AbsDimension x="0" y="6"/></Offset>
 							</Anchor>
 						</Anchors>
 						<Scripts>
 							<OnLoad>
-								XPerl_OptionsSetMyText(self, "XPERL_CONF_RAID_BUFFSRIGHT")
-								self.configBase = "XPerlDB.raid.buffs"
-								self.configIndex = "right"
+								XPerl_OptionsSetMyText(self, "XPERL_CONF_RAID_CURABLE")
+								self.configBase = "XPerlDB.raid.debuffs"
+								self.configIndex = "curable"
 								self.configClick = XPerl_Raid_OptionActions
-								self.Validate = function()
-									XPerl_Options_EnableSibling(self, "BuffsInside")
-								end
 							</OnLoad>
 						</Scripts>
 					</CheckButton>
 
-					<CheckButton name="$parent_BuffsInside" inherits="XPerlCheckButtonTemplate">
-						<Size><AbsDimension x="26" y="26"/></Size>
+					<!-- Replaces the old "Buffs to Right" / "Buffs Inside" pair, which could
+					     only ever describe one shared row. Each type picks its own side now. -->
+					<Frame name="$parent_BuffAnchor" inherits="UIDropDownMenuTemplate" enableMouse="true">
 						<Anchors>
-							<Anchor point="TOP" relativeTo="$parent_BuffsRight" relativePoint="BOTTOMRIGHT">
-								<Offset><AbsDimension x="0" y="6"/></Offset>
+							<Anchor point="TOPLEFT" relativeTo="$parent_Curable" relativePoint="BOTTOMLEFT">
+								<Offset><AbsDimension x="-18" y="-16"/></Offset>
+							</Anchor>
+						</Anchors>
+						<Layers>
+							<Layer level="BACKGROUND">
+								<FontString name="$parentLabel" inherits="GameFontNormalSmall" text="XPERL_CONF_RAID_BUFFANCHOR">
+									<Anchors>
+										<Anchor point="BOTTOMLEFT" relativePoint="TOPLEFT">
+											<Offset><AbsDimension x="21" y="3"/></Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+							</Layer>
+						</Layers>
+						<Scripts>
+							<OnLoad>
+								XPerl_Options_RegisterProtected(_G[self:GetName().."Button"])
+								self.varGet = function() return (XPerlDB and XPerlDB.raid.buffs.anchor) or "BOTTOM" end
+								self.varSet = function(n) XPerlDB.raid.buffs.anchor = n end
+								self.setFunc = XPerl_Raid_OptionActions
+								XPerl_Options_Anchor_OnLoad(self)
+							</OnLoad>
+							<OnShow>
+								XPerl_Options_Anchor_OnLoad(self)
+							</OnShow>
+							<OnEnter>
+								GameTooltip:SetOwner(self, "ANCHOR_RIGHT", -15, 0)
+								GameTooltip:SetText(XPERL_CONF_RAID_BUFFANCHOR_DESC, nil, nil, nil, nil, 1)
+								_G[self:GetName().."Label"]:SetTextColor(HIGHLIGHT_FONT_COLOR.r, HIGHLIGHT_FONT_COLOR.g, HIGHLIGHT_FONT_COLOR.b)
+							</OnEnter>
+							<OnLeave>
+								_G[self:GetName().."Label"]:SetTextColor(NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b)
+								GameTooltip:Hide()
+							</OnLeave>
+						</Scripts>
+					</Frame>
+
+					<Frame name="$parent_DebuffAnchor" inherits="UIDropDownMenuTemplate" enableMouse="true">
+						<Anchors>
+							<Anchor point="TOPLEFT" relativeTo="$parent_BuffAnchor" relativePoint="TOPRIGHT">
+								<Offset><AbsDimension x="-22" y="0"/></Offset>
+							</Anchor>
+						</Anchors>
+						<Layers>
+							<Layer level="BACKGROUND">
+								<FontString name="$parentLabel" inherits="GameFontNormalSmall" text="XPERL_CONF_RAID_DEBUFFANCHOR">
+									<Anchors>
+										<Anchor point="BOTTOMLEFT" relativePoint="TOPLEFT">
+											<Offset><AbsDimension x="21" y="3"/></Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
+							</Layer>
+						</Layers>
+						<Scripts>
+							<OnLoad>
+								XPerl_Options_RegisterProtected(_G[self:GetName().."Button"])
+								self.varGet = function() return (XPerlDB and XPerlDB.raid.debuffs.anchor) or "TOP" end
+								self.varSet = function(n) XPerlDB.raid.debuffs.anchor = n end
+								self.setFunc = XPerl_Raid_OptionActions
+								XPerl_Options_Anchor_OnLoad(self)
+							</OnLoad>
+							<OnShow>
+								XPerl_Options_Anchor_OnLoad(self)
+							</OnShow>
+							<OnEnter>
+								GameTooltip:SetOwner(self, "ANCHOR_RIGHT", -15, 0)
+								GameTooltip:SetText(XPERL_CONF_RAID_DEBUFFANCHOR_DESC, nil, nil, nil, nil, 1)
+								_G[self:GetName().."Label"]:SetTextColor(HIGHLIGHT_FONT_COLOR.r, HIGHLIGHT_FONT_COLOR.g, HIGHLIGHT_FONT_COLOR.b)
+							</OnEnter>
+							<OnLeave>
+								_G[self:GetName().."Label"]:SetTextColor(NORMAL_FONT_COLOR.r, NORMAL_FONT_COLOR.g, NORMAL_FONT_COLOR.b)
+								GameTooltip:Hide()
+							</OnLeave>
+						</Scripts>
+					</Frame>
+
+					<Slider name="$parent_BuffSize" inherits="XPerlSlider">
+						<Size><AbsDimension x="100" y="16"/></Size>
+						<Anchors>
+							<Anchor point="TOPLEFT" relativeTo="$parent_BuffAnchor" relativePoint="BOTTOMLEFT">
+								<Offset><AbsDimension x="22" y="-8"/></Offset>
 							</Anchor>
 						</Anchors>
 						<Scripts>
 							<OnLoad>
-								XPerl_OptionsSetMyText(self, "XPERL_CONF_RAID_BUFFSINSIDE")
-								self.configBase = "XPerlDB.raid.buffs"
-								self.configIndex = "inside"
-								self.configClick = XPerl_Raid_OptionActions
+								self:SetMinMaxValues(6, 24)
+								self:SetValueStep(1)
+								XPerl_SliderSetup(self)
+								XPerl_OptionsSetMyText(self, "XPERL_CONF_RAID_BUFFSIZE")
 							</OnLoad>
+							<OnShow>
+								self:SetValue(XPerlDB.raid.buffs.size or 10)
+							</OnShow>
+							<OnValueChanged>
+								if (XPerlDB and XPerlDB.raid.buffs.size ~= value) then
+									XPerlDB.raid.buffs.size = value
+									XPerl_Raid_OptionActions()
+								end
+								_G[self:GetName().."Current"]:SetText(value)
+							</OnValueChanged>
 						</Scripts>
-					</CheckButton>
+					</Slider>
+
+					<Slider name="$parent_DebuffSize" inherits="XPerlSlider">
+						<Size><AbsDimension x="100" y="16"/></Size>
+						<Anchors>
+							<Anchor point="TOPLEFT" relativeTo="$parent_BuffSize" relativePoint="TOPRIGHT">
+								<Offset><AbsDimension x="24" y="0"/></Offset>
+							</Anchor>
+						</Anchors>
+						<Scripts>
+							<OnLoad>
+								self:SetMinMaxValues(6, 24)
+								self:SetValueStep(1)
+								XPerl_SliderSetup(self)
+								XPerl_OptionsSetMyText(self, "XPERL_CONF_RAID_DEBUFFSIZE")
+							</OnLoad>
+							<OnShow>
+								self:SetValue(XPerlDB.raid.debuffs.size or 12)
+							</OnShow>
+							<OnValueChanged>
+								if (XPerlDB and XPerlDB.raid.debuffs.size ~= value) then
+									XPerlDB.raid.debuffs.size = value
+									XPerl_Raid_OptionActions()
+								end
+								_G[self:GetName().."Current"]:SetText(value)
+							</OnValueChanged>
+						</Scripts>
+					</Slider>
 
 					<CheckButton name="$parent_BuffsUntilDebuffed" inherits="XPerlCheckButtonTemplate">
 						<Anchors>
-							<Anchor point="TOPRIGHT" relativeTo="$parent_BuffsInside" relativePoint="BOTTOM">
-								<Offset><AbsDimension x="0" y="6"/></Offset>
+							<Anchor point="TOPLEFT" relativeTo="$parent_BuffSize" relativePoint="BOTTOMLEFT">
+								<Offset><AbsDimension x="-22" y="-12"/></Offset>
 							</Anchor>
 						</Anchors>
 						<Scripts>
@@ -10944,7 +11087,7 @@
 
 					<Frame name="$parent_Custom">
 						<Scripts>
-							if (select(6, GetAddOnInfo("XPerl_CustomHighlight")) == "MISSING") then
+							if (select(6, XPerl_ModuleGetInfo("XPerl_CustomHighlight")) == "MISSING") then
 								self:Hide()
 							end
 						</Scripts>
@@ -11363,13 +11506,13 @@
 										end
 									</OnLoad>
 									<OnShow>
-										self:SetChecked(IsAddOnLoaded("XPerl_Player"))
+										self:SetChecked(XPerl_ModuleLoaded("XPerl_Player"))
 									</OnShow>
 									<OnClick>
 										if (self:GetChecked()) then
-											EnableAddOn("XPerl_Player")
+											XPerl_ModuleEnable("XPerl_Player")
 										else
-											DisableAddOn("XPerl_Player")
+											XPerl_ModuleDisable("XPerl_Player")
 										end
 										self:Validate()
 									</OnClick>
@@ -11387,13 +11530,13 @@
 										XPerl_OptionsSetMyText(self, "XPERL_CONF_ADDON_PLAYERBUFFS")
 									</OnLoad>
 									<OnShow>
-										self:SetChecked(IsAddOnLoaded("XPerl_PlayerBuffs"))
+										self:SetChecked(XPerl_ModuleLoaded("XPerl_PlayerBuffs"))
 									</OnShow>
 									<OnClick>
 										if (self:GetChecked()) then
-											EnableAddOn("XPerl_PlayerBuffs")
+											XPerl_ModuleEnable("XPerl_PlayerBuffs")
 										else
-											DisableAddOn("XPerl_PlayerBuffs")
+											XPerl_ModuleDisable("XPerl_PlayerBuffs")
 										end
 									</OnClick>
 								</Scripts>
@@ -11410,13 +11553,13 @@
 										XPerl_OptionsSetMyText(self, "XPERL_CONF_ADDON_PET")
 									</OnLoad>
 									<OnShow>
-										self:SetChecked(IsAddOnLoaded("XPerl_PlayerPet"))
+										self:SetChecked(XPerl_ModuleLoaded("XPerl_PlayerPet"))
 									</OnShow>
 									<OnClick>
 										if (self:GetChecked()) then
-											EnableAddOn("XPerl_PlayerPet")
+											XPerl_ModuleEnable("XPerl_PlayerPet")
 										else
-											DisableAddOn("XPerl_PlayerPet")
+											XPerl_ModuleDisable("XPerl_PlayerPet")
 										end
 									</OnClick>
 								</Scripts>
@@ -11436,13 +11579,13 @@
 										end
 									</OnLoad>
 									<OnShow>
-										self:SetChecked(IsAddOnLoaded("XPerl_Target"))
+										self:SetChecked(XPerl_ModuleLoaded("XPerl_Target"))
 									</OnShow>
 									<OnClick>
 										if (self:GetChecked()) then
-											EnableAddOn("XPerl_Target")
+											XPerl_ModuleEnable("XPerl_Target")
 										else
-											DisableAddOn("XPerl_Target")
+											XPerl_ModuleDisable("XPerl_Target")
 										end
 										self:Validate()
 									</OnClick>
@@ -11460,13 +11603,13 @@
 										XPerl_OptionsSetMyText(self, "XPERL_CONF_ADDON_TARGETTARGET")
 									</OnLoad>
 									<OnShow>
-										self:SetChecked(IsAddOnLoaded("XPerl_TargetTarget"))
+										self:SetChecked(XPerl_ModuleLoaded("XPerl_TargetTarget"))
 									</OnShow>
 									<OnClick>
 										if (self:GetChecked()) then
-											EnableAddOn("XPerl_TargetTarget")
+											XPerl_ModuleEnable("XPerl_TargetTarget")
 										else
-											DisableAddOn("XPerl_TargetTarget")
+											XPerl_ModuleDisable("XPerl_TargetTarget")
 										end
 									</OnClick>
 								</Scripts>
@@ -11486,13 +11629,13 @@
 										end
 									</OnLoad>
 									<OnShow>
-										self:SetChecked(IsAddOnLoaded("XPerl_Party"))
+										self:SetChecked(XPerl_ModuleLoaded("XPerl_Party"))
 									</OnShow>
 									<OnClick>
 										if (self:GetChecked()) then
-											EnableAddOn("XPerl_Party")
+											XPerl_ModuleEnable("XPerl_Party")
 										else
-											DisableAddOn("XPerl_Party")
+											XPerl_ModuleDisable("XPerl_Party")
 										end
 										self:Validate()
 									</OnClick>
@@ -11510,13 +11653,13 @@
 										XPerl_OptionsSetMyText(self, "XPERL_CONF_ADDON_PARTYPET")
 									</OnLoad>
 									<OnShow>
-										self:SetChecked(IsAddOnLoaded("XPerl_PartyPet"))
+										self:SetChecked(XPerl_ModuleLoaded("XPerl_PartyPet"))
 									</OnShow>
 									<OnClick>
 										if (self:GetChecked()) then
-											EnableAddOn("XPerl_PartyPet")
+											XPerl_ModuleEnable("XPerl_PartyPet")
 										else
-											DisableAddOn("XPerl_PartyPet")
+											XPerl_ModuleDisable("XPerl_PartyPet")
 										end
 									</OnClick>
 								</Scripts>
@@ -11533,13 +11676,13 @@
 										XPerl_OptionsSetMyText(self, "XPERL_CONF_ADDON_ARCANE")
 									</OnLoad>
 									<OnShow>
-										self:SetChecked(IsAddOnLoaded("XPerl_ArcaneBar"))
+										self:SetChecked(XPerl_ModuleLoaded("XPerl_ArcaneBar"))
 									</OnShow>
 									<OnClick>
 										if (self:GetChecked()) then
-											EnableAddOn("XPerl_ArcaneBar")
+											XPerl_ModuleEnable("XPerl_ArcaneBar")
 										else
-											DisableAddOn("XPerl_ArcaneBar")
+											XPerl_ModuleDisable("XPerl_ArcaneBar")
 										end
 									</OnClick>
 								</Scripts>
@@ -11559,13 +11702,13 @@
 										end
 									</OnLoad>
 									<OnShow>
-										self:SetChecked(IsAddOnLoaded("XPerl_RaidFrames"))
+										self:SetChecked(XPerl_ModuleLoaded("XPerl_RaidFrames"))
 									</OnShow>
 									<OnClick>
 										if (self:GetChecked()) then
-											EnableAddOn("XPerl_RaidFrames")
+											XPerl_ModuleEnable("XPerl_RaidFrames")
 										else
-											DisableAddOn("XPerl_RaidFrames")
+											XPerl_ModuleDisable("XPerl_RaidFrames")
 										end
 										self:Validate()
 									</OnClick>
@@ -11583,13 +11726,13 @@
 										XPerl_OptionsSetMyText(self, "XPERL_CONF_ADDON_RAIDPETS")
 									</OnLoad>
 									<OnShow>
-										self:SetChecked(IsAddOnLoaded("XPerl_RaidPets"))
+										self:SetChecked(XPerl_ModuleLoaded("XPerl_RaidPets"))
 									</OnShow>
 									<OnClick>
 										if (self:GetChecked()) then
-											EnableAddOn("XPerl_RaidPets")
+											XPerl_ModuleEnable("XPerl_RaidPets")
 										else
-											DisableAddOn("XPerl_RaidPets")
+											XPerl_ModuleDisable("XPerl_RaidPets")
 										end
 									</OnClick>
 								</Scripts>
@@ -11606,13 +11749,13 @@
 										XPerl_OptionsSetMyText(self, "XPERL_CONF_ADDON_RAIDHELP")
 									</OnLoad>
 									<OnShow>
-										self:SetChecked(IsAddOnLoaded("XPerl_RaidHelper"))
+										self:SetChecked(XPerl_ModuleLoaded("XPerl_RaidHelper"))
 									</OnShow>
 									<OnClick>
 										if (self:GetChecked()) then
-											EnableAddOn("XPerl_RaidHelper")
+											XPerl_ModuleEnable("XPerl_RaidHelper")
 										else
-											DisableAddOn("XPerl_RaidHelper")
+											XPerl_ModuleDisable("XPerl_RaidHelper")
 										end
 									</OnClick>
 								</Scripts>
@@ -11629,13 +11772,13 @@
 										XPerl_OptionsSetMyText(self, "XPERL_CONF_ADDON_RAIDMONITOR")
 									</OnLoad>
 									<OnShow>
-										self:SetChecked(IsAddOnLoaded("XPerl_RaidMonitor"))
+										self:SetChecked(XPerl_ModuleLoaded("XPerl_RaidMonitor"))
 									</OnShow>
 									<OnClick>
 										if (self:GetChecked()) then
-											EnableAddOn("XPerl_RaidMonitor")
+											XPerl_ModuleEnable("XPerl_RaidMonitor")
 										else
-											DisableAddOn("XPerl_RaidMonitor")
+											XPerl_ModuleDisable("XPerl_RaidMonitor")
 										end
 									</OnClick>
 								</Scripts>
@@ -11652,13 +11795,13 @@
 										XPerl_OptionsSetMyText(self, "XPERL_CONF_ADDON_RAIDADMIN")
 									</OnLoad>
 									<OnShow>
-										self:SetChecked(IsAddOnLoaded("XPerl_RaidAdmin"))
+										self:SetChecked(XPerl_ModuleLoaded("XPerl_RaidAdmin"))
 									</OnShow>
 									<OnClick>
 										if (self:GetChecked()) then
-											EnableAddOn("XPerl_RaidAdmin")
+											XPerl_ModuleEnable("XPerl_RaidAdmin")
 										else
-											DisableAddOn("XPerl_RaidAdmin")
+											XPerl_ModuleDisable("XPerl_RaidAdmin")
 										end
 									</OnClick>
 								</Scripts>
@@ -11683,7 +11826,7 @@
 
 											local enable
 											for i,name in pairs(list) do
-												if (XPerl_Options_GetSiblingChecked(name,self) ~= IsAddOnLoaded("XPerl_"..name)) then
+												if (XPerl_Options_GetSiblingChecked(name,self) ~= XPerl_ModuleLoaded("XPerl_"..name)) then
 													enable = true
 													break;
 												end
@@ -14203,7 +14346,7 @@
 							</OnLoad>
 							<OnClick>
 								if (not XPerl_Custom) then
-									LoadAddOn("XPerl_CustomHighlight")
+									XPerl_ModuleLoad("XPerl_CustomHighlight")
 								end
 								if (XPerl_Custom) then
 									XPerl_Custom:SetDefaults()
