@@ -721,7 +721,9 @@ local function GetAuraButton(container, index, createIfAbsent, auraType)
 
 	if (not button and createIfAbsent) then
 		buffIconCount = buffIconCount + 1
-		button = CreateFrame("Button", "XPerlRBuff"..buffIconCount, container, "XPerl_BuffTemplate")
+		-- Cooldown variant of the template, so raid icons get the same timer sweep and
+		-- countdown text the party and player frames have always had.
+		button = CreateFrame("Button", "XPerlRBuff"..buffIconCount, container, "XPerl_Cooldown_BuffTemplate")
 		button:SetID(index)
 
 		if (not container.buff) then
@@ -754,9 +756,12 @@ end
 -- Where the container sits against the stats frame, and which way the icons grow from it.
 -- dx/dy move along a row, and rows stack away from the frame, so a second row never lands
 -- on top of the health bar. wrapAcross means rows run vertically (LEFT/RIGHT anchors).
+-- relTo names the sub-frame to hang off, defaulting to the stats frame. TOP has to use the name
+-- row instead: the stats frame's top edge is under the name, so anchoring there put the icons on
+-- top of the name text. The name row is the top of the whole frame, so icons clear it.
 local auraAnchors = {
 	BOTTOM	= {point = "TOPLEFT",		relPoint = "BOTTOMLEFT",	x = 0,	y = -1,	dx = 1,	dy = -1,	wrapAcross = false},
-	TOP	= {point = "BOTTOMLEFT",	relPoint = "TOPLEFT",		x = 0,	y = 1,	dx = 1,	dy = 1,		wrapAcross = false},
+	TOP	= {point = "BOTTOMLEFT",	relPoint = "TOPLEFT",		x = 0,	y = 1,	dx = 1,	dy = 1,		wrapAcross = false,	relTo = "nameFrame"},
 	RIGHT	= {point = "TOPLEFT",		relPoint = "TOPRIGHT",		x = 1,	y = 0,	dx = 1,	dy = -1,	wrapAcross = true},
 	LEFT	= {point = "TOPRIGHT",		relPoint = "TOPLEFT",		x = -1,	y = 0,	dx = -1, dy = -1,	wrapAcross = true},
 }
@@ -779,7 +784,7 @@ local function LayoutAuras(self, container, count, aconf)
 	end
 
 	container:ClearAllPoints()
-	container:SetPoint(a.point, self.statsFrame, a.relPoint, a.x, a.y)
+	container:SetPoint(a.point, (a.relTo and self[a.relTo]) or self.statsFrame, a.relPoint, a.x, a.y)
 
 	for i = 1, count do
 		local button = container.buff[i]
@@ -789,6 +794,13 @@ local function LayoutAuras(self, container, count, aconf)
 		button:SetWidth(size)
 		button:SetHeight(size)
 		button:ClearAllPoints()
+
+		-- The template's countdown font is sized for a 32px icon, so scale it to whatever
+		-- icon size is in use or the number spills off a small raid icon.
+		local cd = button.cooldown
+		if (cd and cd.countdown) then
+			cd.countdown:SetFont(STANDARD_TEXT_FONT, max(8, floor(size * 0.55)), "OUTLINE")
+		end
 
 		local x, y
 		if (a.wrapAcross) then
@@ -810,6 +822,146 @@ local function HideAuras(self, auraType)
 	end
 end
 
+----------------------------------------------------------------------
+-- Buff ordering
+--
+-- Buffs are not shown in the game's slot order. That order is really aura slot reuse: when
+-- one drops, the next applied takes the hole, so icons shuffle for no visible reason. Worse,
+-- with a cap of 8 icons the slot order decides what you see, and on a fully raid buffed unit
+-- your own HoTs can sit past the cap and never be drawn at all.
+--
+-- Order is HoTs first, then whatever expires soonest. HoTs keep the fixed order in the list
+-- below however much time is left on them, so the row stays put as ticks land.
+--
+-- Spell IDs rather than names, so this works on any client language.
+----------------------------------------------------------------------
+
+-- The order here IS the display order for HoTs. Rearrange to taste.
+local hotSpellIDs = {
+	774,		-- Rejuvenation
+	8936,		-- Regrowth
+	48438,		-- Wild Growth
+	33763,		-- Lifebloom
+	139,		-- Renew
+	61295,		-- Riptide
+}
+
+-- The long duration group buffs, single and group version of each. Hidden as one set by the
+-- Hide Group Buffs option, to stop them crowding out short term buffs you actually watch.
+local groupBuffSpellIDs = {
+	1126, 21849,		-- Mark of the Wild / Gift of the Wild
+	1243, 21562,		-- Power Word: Fortitude / Prayer of Fortitude
+	14752, 27681,		-- Divine Spirit / Prayer of Spirit
+	976, 27683,		-- Shadow Protection / Prayer of Shadow Protection
+	1459, 23028,		-- Arcane Intellect / Arcane Brilliance
+	20217, 25898,		-- Blessing of Kings / Greater Blessing of Kings
+	19740, 25782,		-- Blessing of Might / Greater Blessing of Might
+	19742, 25894,		-- Blessing of Wisdom / Greater Blessing of Wisdom
+	20911, 25899,		-- Blessing of Sanctuary / Greater Blessing of Sanctuary
+	19977, 25890,		-- Blessing of Light / Greater Blessing of Light
+}
+
+local hotOrder, groupBuffNames
+local emptyNames = {}
+local function AuraNameLists()
+	if (not hotOrder) then
+		local hots, group = {}, {}
+		local resolved = 0
+
+		for i = 1, #hotSpellIDs do
+			local name = GetSpellInfo(hotSpellIDs[i])
+			if (name) then
+				hots[name] = i
+				resolved = resolved + 1
+			end
+		end
+		for i = 1, #groupBuffSpellIDs do
+			local name = GetSpellInfo(groupBuffSpellIDs[i])
+			if (name) then
+				group[name] = true
+				resolved = resolved + 1
+			end
+		end
+
+		-- Don't keep the result until at least one name came back. Nothing resolving means the
+		-- spell data isn't readable yet, and caching that would silently kill buff ordering and
+		-- group buff hiding for the rest of the session.
+		if (resolved == 0) then
+			return emptyNames, emptyNames
+		end
+
+		hotOrder, groupBuffNames = hots, group
+	end
+	return hotOrder, groupBuffNames
+end
+
+-- Scan past the icon cap so the sort picks from everything present rather than the cap
+-- deciding first. Kept modest because with Castable Only on, each lookup also walks the
+-- unfiltered list to recover the real aura index.
+local AURA_SCAN_MAX = 24
+local NO_EXPIRY = 1e9
+
+-- Reused between calls, entries included, so a busy raid isn't allocating 25 tables a tick
+local auraPool, auraList = {}, {}
+
+local function AuraSortCompare(x, y)
+	local xh, yh = x.hot or 1000, y.hot or 1000
+	if (xh ~= yh) then
+		return xh < yh			-- HoTs first, in their fixed order
+	end
+	if (xh < 1000) then
+		return x.index < y.index	-- same HoT on twice, keep it stable
+	end
+	if (x.left ~= y.left) then
+		return x.left < y.left		-- then soonest to expire
+	end
+	return x.index < y.index		-- and a tiebreak, so the sort is never ambiguous
+end
+
+-- CollectSortedBuffs(partyid, aconf, filter)
+-- Fills auraList with what should be shown, in display order. Returns how many.
+local function CollectSortedBuffs(partyid, aconf, filter)
+	local hots, group = AuraNameLists()
+	local hideGroup = aconf.hideGroupBuffs
+	local now = GetTime()
+
+	for i = #auraList, 1, -1 do
+		auraList[i] = nil
+	end
+
+	local n = 0
+	for index = 1, AURA_SCAN_MAX do
+		local name, _, tex, _, _, duration, endTime, caster = XPerl_UnitBuff(partyid, index, filter, true)
+		if (not name) then
+			break
+		end
+
+		if (tex and not (hideGroup and group[name])) then
+			n = n + 1
+			local e = auraPool[n]
+			if (not e) then
+				e = {}
+				auraPool[n] = e
+			end
+			auraList[n] = e
+
+			e.index = index
+			e.tex = tex
+			e.duration = duration
+			e.endTime = endTime
+			e.caster = caster
+			e.hot = hots[name]
+			e.left = (duration and duration > 0 and endTime) and (endTime - now) or NO_EXPIRY
+		end
+	end
+
+	if (n > 1) then
+		table.sort(auraList, AuraSortCompare)
+	end
+
+	return n
+end
+
 -- UpdateAuraType(self, auraType, aconf, filter)
 -- Returns how many icons ended up shown.
 local function UpdateAuraType(self, auraType, aconf, filter)
@@ -818,23 +970,50 @@ local function UpdateAuraType(self, auraType, aconf, filter)
 	local maxIcons = aconf.max or 8
 	local count = 0
 
-	for index = 1, maxIcons do
-		local name, rank, tex
-		if (auraType == "b") then
-			name, rank, tex = XPerl_UnitBuff(partyid, index, filter, true)
+	-- Buffs come back sorted, so an icon's position no longer matches its aura index. Debuffs
+	-- are left in the game's order.
+	local sorted = (auraType == "b") and CollectSortedBuffs(partyid, aconf, filter) or nil
+
+	for slot = 1, maxIcons do
+		local index, tex, duration, endTime, caster
+		if (sorted) then
+			local e = (slot <= sorted) and auraList[slot]
+			if (e) then
+				index, tex, duration, endTime, caster = e.index, e.tex, e.duration, e.endTime, e.caster
+			end
 		else
-			name, rank, tex = XPerl_UnitDebuff(partyid, index, filter, true)
+			index = slot
+			local name, rank, stacks, aType
+			name, rank, tex, stacks, aType, duration, endTime, caster = XPerl_UnitDebuff(partyid, slot, filter, true)
 		end
 
-		local button = GetAuraButton(container, index, tex, auraType)	-- 'tex' flags whether to create icon
+		local button = GetAuraButton(container, slot, tex, auraType)	-- 'tex' flags whether to create icon
 		if (button) then
 			if (tex) then
 				count = count + 1
 				button.icon:SetTexture(tex)
+
+				-- The tooltip looks the aura up by the button's ID, so this has to carry the
+				-- real aura index rather than the position the icon happens to sit in.
+				button:SetID(index)
+
+				-- Same options as every other frame. SetTimer works out sweep and text from the
+				-- per audience settings, so nothing is decided here beyond having a duration.
+				if (button.cooldown) then
+					if (duration and duration > 0 and endTime) then
+						XPerl_CooldownFrame_SetTimer(button.cooldown, endTime - duration, duration, 1, (caster == "player" or caster == "vehicle"))
+					else
+						button.cooldown:Hide()
+					end
+				end
+
 				if (not button:IsShown()) then
 					button:Show()
 				end
 			elseif (button:IsShown()) then
+				if (button.cooldown) then
+					button.cooldown:Hide()
+				end
 				button:Hide()
 			end
 		end
@@ -1045,6 +1224,11 @@ local function TestAuras(frame, auraType, aconf, count, icons)
 		local tex = (i <= count) and icons[((i - 1) % #icons) + 1]
 		local button = GetAuraButton(container, i, tex, auraType)
 		if (button) then
+			-- Samples have no duration, so clear any sweep left over from a real aura that
+			-- used this same icon slot before test mode was turned on.
+			if (button.cooldown) then
+				button.cooldown:Hide()
+			end
 			if (tex) then
 				button.icon:SetTexture(tex)
 				button:Show()
@@ -1123,14 +1307,33 @@ function XPerl_Raid_TestMode_Refresh()
 			g.holder:SetPoint(a.point, titleFrame, a.rel, 0, 0)
 			g.holder:Show()
 
+			-- Ungrouped with Show When Solo on, the header is already drawing your own frame in
+			-- the first slot of group 1. Start the samples one slot along so they don't stack on
+			-- top of it - your real frame plus four samples still makes a full group of five.
+			local skip = 0
+			if (group == 1 and not grouped and rconf.inParty and rconf.solo) then
+				skip = 1
+			end
+
+			for i = 1, skip do
+				if (g.frames[i] and g.frames[i]:IsShown()) then
+					g.frames[i]:Hide()
+				end
+			end
+
 			for i, member in ipairs(testRoster[group]) do
+			  if (i > skip) then
 				local f = g.frames[i]
 
 				Setup1RaidFrame(f)
 
 				f:ClearAllPoints()
-				if (i == 1) then
-					f:SetPoint(a.child, g.holder, a.child, 0, 0)
+				if (i == skip + 1) then
+					local slot = 0
+					if (skip > 0) then
+						slot = ((a.x ~= 0) and f:GetWidth() or f:GetHeight()) + spacing
+					end
+					f:SetPoint(a.child, g.holder, a.child, slot * skip * a.x, slot * skip * a.y)
 				else
 					f:SetPoint(a.child, g.frames[i - 1], a.next, spacing * a.x, spacing * a.y)
 				end
@@ -1167,6 +1370,7 @@ function XPerl_Raid_TestMode_Refresh()
 				TestAuras(f, "d", rconf.debuffs, count, testDebuffIcons)
 
 				f:Show()
+			  end
 			end
 		end
 	end
@@ -1435,15 +1639,30 @@ function XPerl_Raid_ShouldShow()
 end
 
 -- HideShowRaid
+-- XPerl_Raid_PartyGroup1Only()
+-- True when we're being shown for a party rather than a raid and only the group 1 block should
+-- be used. Group 1's filter already matches the whole party, so the other group blocks have
+-- nothing to show; this keeps them out of the way entirely rather than leaving them up empty.
+--
+-- Never while sorting by class. The blocks are classes then, not groups, so there is no "group
+-- 1" to keep and applying this would hide every class block but the first.
+function XPerl_Raid_PartyGroup1Only()
+	if (rconf.sortByClass) then
+		return false
+	end
+	return GetNumRaidMembers() == 0 and rconf.inParty and rconf.partyGroup1Only and true or false
+end
+
 function XPerl_Raid_HideShowRaid()
 	local enable = XPerl_Raid_Enabled()
+	local group1Only = XPerl_Raid_PartyGroup1Only()
 
-	-- Nothing special is needed for party mode here. The secure header reports every party
-	-- member as subgroup 1 with their real class, so group 1's filter already matches the
-	-- whole party and groups 2-8 match nobody - they show as empty and their titles are
-	-- suppressed by the RaidGroupCounts check in XPerl_RaidTitles.
 	for i = 1,WoWclassCount do
-		if (rconf.group[i] == 1 and enable and (i < 9 or rconf.sortByClass)) then
+		if (group1Only and i ~= 1) then
+			if (raidHeaders[i]:IsShown()) then
+				raidHeaders[i]:Hide()
+			end
+		elseif (rconf.group[i] == 1 and enable and (i < 9 or rconf.sortByClass)) then
 			if (not raidHeaders[i]:IsShown()) then
 				raidHeaders[i]:Show()
 			end
@@ -2080,6 +2299,7 @@ end
 -- XPerl_RaidTitles
 function XPerl_RaidTitles()
 	local c
+	local group1Only = XPerl_Raid_PartyGroup1Only()
 	for i = 1,WoWclassCount do
 		local confClass = rconf.class[i].name
 		local frame = _G["XPerl_Raid_Title"..i]
@@ -2105,7 +2325,16 @@ function XPerl_RaidTitles()
 
 		local enable = XPerl_Raid_Enabled()
 
-		if (XPerlLocked == 0 or (RaidGroupCounts[i] > 0 and enable and rconf.group[i])) then
+		-- The group1Only check has to beat the unlocked case too, or the other group titles
+		-- would still appear while positioning frames in a party.
+		if (group1Only and i ~= 1) then
+			if (virtualFrame:IsShown()) then
+				virtualFrame:Hide()
+			end
+			if (titleFrame:IsShown()) then
+				titleFrame:Hide()
+			end
+		elseif (XPerlLocked == 0 or (RaidGroupCounts[i] > 0 and enable and rconf.group[i])) then
 			if (XPerlLocked == 0 or rconf.titles) then
 				if (not titleFrame:IsShown()) then
 					titleFrame:Show()

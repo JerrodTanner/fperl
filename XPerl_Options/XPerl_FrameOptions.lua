@@ -177,6 +177,14 @@ function XPerl_Options_EnableSibling(self,sibling, check2nd, check3rd)
 			else
 				siblingFrame:DisableSlider()
 			end
+		elseif (_G[siblingName.."Button"]) then
+			-- A UIDropDownMenu. It's a plain Frame, so it needs spotting by the button the
+			-- template puts inside it rather than by object type.
+			if (result) then
+				UIDropDownMenu_EnableDropDown(siblingFrame)
+			else
+				UIDropDownMenu_DisableDropDown(siblingFrame)
+			end
 		else
 			DEFAULT_CHAT_FRAME:AddMessage("|c00FF0000X-Perl|r - No code to disable '"..siblingFrame:GetName().."' type: "..(siblingFrame.GetFrameType or siblingFrame.GetObjectType)(siblingFrame))
 		end
@@ -1731,9 +1739,10 @@ function XPerl_Options_ImportOldConfig(old)
 		optionsColour		= old.OptionsColour		or {r = 0.7, g = 0.2, b = 0.2},	-- 1.8.3
 		showAFK			= Convert(old.ShowAFK),					-- 2.2.4
 		buffs = {
-			cooldown	= Convert(old.BuffCooldown),				-- 2.2.3
-			countdown	= Convert(old.BuffCountdown),				-- 2.2.2
-			countdownStart	= old.BuffCountdownStart	or 20,			-- 2.2.2
+			-- The ancient config only ever described your own auras, so straight to the "mine" keys
+			cooldownMine	= Convert(old.BuffCooldown),				-- 2.2.3
+			countdownMine	= Convert(old.BuffCountdown),				-- 2.2.2
+			countdownStart	= old.BuffCountdownStart	or 99,			-- 2.2.2
 		},
 		rangeFinder = old.RangeFinder or XPerl_DefaultRangeFinder(),
 		highlight = {
@@ -2224,10 +2233,15 @@ local function XPerl_Global_ConfigDefault(default)
 		visible		= 1,			-- 2.2.9
 	}
 
+	-- Sweep and countdown text are set independently, and separately for your own auras and
+	-- everyone else's. Defaults match what the old single on/off pair did: both on for yours,
+	-- neither for other people's.
 	default.buffs = {
-		cooldown	= 1,			-- 2.2.3
-		countdown	= 1,			-- 2.2.2
-		countdownStart	= 20,			-- 2.2.2
+		cooldownMine	= 1,			-- 2.2.3
+		countdownMine	= 1,			-- 2.2.2
+--		cooldownOthers	= nil,
+--		countdownOthers	= nil,
+		countdownStart	= 99,			-- 2.2.2. 99 not 100, so the number stays two digits on a small raid icon
 	}
 
 	default.rangeFinder = XPerl_DefaultRangeFinder()
@@ -2556,6 +2570,7 @@ local function XPerl_Raid_ConfigDefault(default)
 		-- inParty puts the raid frames up for a 5 man group as well as a raid, which is what
 		-- replaced One-Group Raid Show. solo keeps them up when you aren't grouped at all.
 		inParty			= 1,
+		partyGroup1Only		= 1,			-- In a party only group 1 is real, so leave the other blocks out
 --		solo			= nil,
 --		sortByClass		= nil,
 --		sortAlpha		= nil,
@@ -2586,6 +2601,7 @@ local function XPerl_Raid_ConfigDefault(default)
 			anchor		= "BOTTOM",
 			size		= 10,
 			max		= 8,
+--			hideGroupBuffs	= nil,			-- Off, so the row looks the same until asked otherwise
 --			untilDebuffed	= nil,			-- 2.1.3
 		},
 		debuffs = {
@@ -3123,6 +3139,20 @@ if (XPerl_UpgradeSettings) then
 		-- and it was placed with the right/inside pair. A config still carrying those keys
 		-- predates the split: turn both rows on and give them the new below/above layout.
 		-- The old placement isn't carried over - Buff/Debuff Position on the Raid tab sets it.
+		-- Cooldown sweep and countdown text used to be one on/off each plus a shared "All" pair,
+		-- so the sweep had to be on for the text to appear at all. They're independent now, and
+		-- set per audience, so carry the old combination across rather than resetting it.
+		if (old.buffs and (old.buffs.cooldown ~= nil or old.buffs.cooldownAny ~= nil)) then
+			old.buffs.cooldownMine = old.buffs.cooldown
+			old.buffs.cooldownOthers = (old.buffs.cooldown and old.buffs.cooldownAny) and 1 or nil
+			old.buffs.cooldown, old.buffs.cooldownAny = nil, nil
+		end
+		if (old.buffs and (old.buffs.countdown ~= nil or old.buffs.countdownAny ~= nil)) then
+			old.buffs.countdownMine = old.buffs.countdown
+			old.buffs.countdownOthers = (old.buffs.countdown and old.buffs.countdownAny) and 1 or nil
+			old.buffs.countdown, old.buffs.countdownAny = nil, nil
+		end
+
 		if (old.raid and old.raid.buffs and (old.raid.buffs.right ~= nil or old.raid.buffs.inside ~= nil)) then
 			old.raid.buffs.right, old.raid.buffs.inside = nil, nil
 			old.raid.buffs.enable = 1

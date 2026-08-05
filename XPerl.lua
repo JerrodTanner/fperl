@@ -2656,13 +2656,29 @@ local function BuffCooldownDisplay(self)
 	end
 end
 
--- XPerl_CooldownFrame_SetTimer(self, start, duration, enable)
+-- XPerl_CooldownFrame_SetTimer(self, start, duration, enable, mine)
+-- Sweep and countdown text are independent, and set separately for your own auras and for
+-- everyone else's. The text is a child of this frame, so "text but no sweep" means keeping the
+-- frame shown with nothing to draw rather than hiding it.
 function XPerl_CooldownFrame_SetTimer(self, start, duration, enable, mine)
-	if ( start > 0 and duration > 0 and enable > 0) then
-		self:SetCooldown(start, duration)
+	local b = conf.buffs
+	local wantSweep, wantText
+	if (mine) then
+		wantSweep, wantText = b.cooldownMine, b.countdownMine
+	else
+		wantSweep, wantText = b.cooldownOthers, b.countdownOthers
+	end
+
+	if (start > 0 and duration > 0 and enable > 0 and (wantSweep or wantText)) then
 		self.endTime = start + duration
 
-		if (conf.buffs.countdown and (mine or conf.buffs.countdownAny)) then
+		if (wantSweep) then
+			self:SetCooldown(start, duration)
+		else
+			self:SetCooldown(0, 0)			-- nothing to draw, but the number still needs a host
+		end
+
+		if (wantText) then
 			self:SetScript("OnUpdate", BuffCooldownDisplay)
 		else
 			self:SetScript("OnUpdate", nil)
@@ -2671,6 +2687,7 @@ function XPerl_CooldownFrame_SetTimer(self, start, duration, enable, mine)
 
 		self:Show()
 	else
+		self:SetScript("OnUpdate", nil)
 		self:Hide()
 	end
 end
@@ -3050,11 +3067,11 @@ function XPerl_Unit_UpdateBuffs(self, maxBuffs, maxDebuffs, castableOnly, curabl
 							button.count:Hide()
 						end
 	
-						-- Handle cooldowns
+						-- Handle cooldowns. SetTimer decides sweep and text for itself now, so don't
+						-- gate on the options here or "text without sweep" could never happen.
 						if (button.cooldown) then
-							if (duration and conf.buffs.cooldown and (isMine or conf.buffs.cooldownAny)) then
-								local start = endTime - duration
-								XPerl_CooldownFrame_SetTimer(button.cooldown, start, duration, 1, isMine)
+							if (duration and duration > 0 and endTime) then
+								XPerl_CooldownFrame_SetTimer(button.cooldown, endTime - duration, duration, 1, isMine)
 							else
 								button.cooldown:Hide()
 							end
@@ -3167,11 +3184,11 @@ function XPerl_Unit_UpdateBuffs(self, maxBuffs, maxDebuffs, castableOnly, curabl
 						local borderColor = DebuffTypeColor[(debuffType or "none")]
 						button.border:SetVertexColor(borderColor.r, borderColor.g, borderColor.b)
 
-						-- Handle cooldowns
+						-- Handle cooldowns. SetTimer decides sweep and text for itself now, so don't
+						-- gate on the options here or "text without sweep" could never happen.
 						if (button.cooldown) then
-							if (duration and conf.buffs.cooldown and (isMine or conf.buffs.cooldownAny)) then
-								local start = endTime - duration
-								XPerl_CooldownFrame_SetTimer(button.cooldown, start, duration, 1, isMine)
+							if (duration and duration > 0 and endTime) then
+								XPerl_CooldownFrame_SetTimer(button.cooldown, endTime - duration, duration, 1, isMine)
 							else
 								button.cooldown:Hide()
 							end

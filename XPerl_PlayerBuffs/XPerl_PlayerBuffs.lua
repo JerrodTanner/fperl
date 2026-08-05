@@ -110,15 +110,19 @@ function XPerl_PlayerBuffs_OnUpdate(self, elapsed)
 		-- So we intercept UNIT_AURA for this, but will still have to catch PLAYER_AURAS_CHANGED because there's some
 		-- latency between a buff expiring (according to UNIT_BUFF), and the aura fading (according to PLAYER_AURAS_CHANGED).
 		if (pconf.buffs.enable) then
-			local a = conf.buffs.cooldown
-			conf.buffs.cooldown = pconf.buffs.cooldown
+			-- This frame has its own cooldown toggle, applied by borrowing the global settings
+			-- for the duration of the shared update. Both audiences are overridden, with the
+			-- global "other people's" choice still respected underneath.
+			local a, b = conf.buffs.cooldownMine, conf.buffs.cooldownOthers
+			conf.buffs.cooldownMine = pconf.buffs.cooldown
+			conf.buffs.cooldownOthers = pconf.buffs.cooldown and b
 			if (pconf.buffs.wrap) then
 				XPerl_Unit_UpdateBuffs(XPerl_Player, nil, nil, 0, 0)
 			else
 				XPerl_Unit_UpdateBuffs(XPerl_Player, pconf.buffs.count, pconf.buffs.count, 0, 0)
 			end
 			XPerl_Player_Buffs_Position(XPerl_Player)
-			conf.buffs.cooldown = a
+			conf.buffs.cooldownMine, conf.buffs.cooldownOthers = a, b
 
 			XPerl_Player_TempEnchantUpdate(XPerl_Player)
 
@@ -259,14 +263,15 @@ function XPerl_Player_BuffSetup(self)
 	ev:RegisterEvent("UNIT_EXITED_VEHICLE")
 	self.buffFrame:Show()
 
-	local a = conf.buffs.cooldown
-	conf.buffs.cooldown = pconf.buffs.cooldown
+	local a, b = conf.buffs.cooldownMine, conf.buffs.cooldownOthers
+	conf.buffs.cooldownMine = pconf.buffs.cooldown
+	conf.buffs.cooldownOthers = pconf.buffs.cooldown and b
 	if (pconf.buffs.wrap) then
 		XPerl_Unit_UpdateBuffs(XPerl_Player, nil, nil, 0, 0)
 	else
 		XPerl_Unit_UpdateBuffs(XPerl_Player, pconf.buffs.count, pconf.buffs.count, 0, 0)
 	end
-	conf.buffs.cooldown = a
+	conf.buffs.cooldownMine, conf.buffs.cooldownOthers = a, b
 
 	self.buffOptMix = nil
 	XPerl_Player_Buffs_Position(self)
@@ -336,11 +341,12 @@ function XPerl_Player_TempEnchantUpdate(self)
 
 			-- Handle cooldowns
 			if (button.cooldown) then
-				if (expire and conf.buffs.cooldown and pconf.buffs.cooldown) then
+				if (expire and pconf.buffs.cooldown) then
 					local timeEnd = time + (expire / 1000)
 					local timeStart = timeEnd - button.fullDuration		--          (30 * 60)
 
-					XPerl_CooldownFrame_SetTimer(button.cooldown, timeStart, button.fullDuration, 1)
+					-- A weapon enchant is our own, so it follows the "my auras" settings
+					XPerl_CooldownFrame_SetTimer(button.cooldown, timeStart, button.fullDuration, 1, true)
 				else
 					button.cooldown:Hide()
 				end

@@ -442,6 +442,13 @@ function XPerl_RaidPets_OptionActions()
 	else
 		XPerl_Raid_TitlePets:Hide()
 	end
+
+	-- The pet options are the only ones on the Raid tab that don't go through
+	-- XPerl_Raid_OptionActions, so the /xperl test samples need refreshing from here too.
+	-- It early-outs when test mode is off, which is the usual case.
+	if (XPerl_Raid_TestMode_Refresh) then
+		XPerl_Raid_TestMode_Refresh()
+	end
 end
 
 XPerl_RegisterOptionChanger(XPerl_RaidPets_OptionActions, "RaidPets")

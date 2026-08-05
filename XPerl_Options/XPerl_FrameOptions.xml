@@ -1700,7 +1700,7 @@
 
 	<Frame name="XPerl_OptionsAnchor" parent="UIParent" movable="true" resizable="true">
 		<Size>
-			<AbsDimension x="650" y="540"/>
+			<AbsDimension x="650" y="640"/>
 		</Size>
 		<Anchors>
 			<Anchor point="CENTER"/>
@@ -1828,7 +1828,7 @@
 			</OnMouseUp>
 		</Scripts>
 		<Size>
-			<AbsDimension x="650" y="540"/>
+			<AbsDimension x="650" y="640"/>
 		</Size>
 		<Anchors>
 			<Anchor point="TOPLEFT"/>
@@ -3368,16 +3368,13 @@
 						</Anchors>
 						<Scripts>
 							<OnLoad>
-								XPerl_OptionsSetMyText(self, "XPERL_CONF_BUFFCOOLDOWN")
+								XPerl_OptionsSetMyText(self, "XPERL_CONF_BUFFCOOLDOWNMINE")
 								self.configBase = "XPerlDB.buffs"
-								self.configIndex = "cooldown"
+								self.configIndex = "cooldownMine"
 								self.configClick = XPerl_OptionActions
-								self.Validate = function()
-									XPerl_Options_EnableSibling(self,"BuffCooldownAny")
-									XPerl_Options_EnableSibling(self,"BuffCountdown")
-									XPerl_Options_EnableSibling(self,"BuffCountdownAny", "BuffCountdown")
-									XPerl_Options_EnableSibling(self,"BuffCountdownStart", "BuffCountdown")
-								end
+								-- All four are independent now, so this one gates nothing. The only
+								-- dependency left is the countdown start slider, which the two
+								-- countdown boxes handle between them.
 							</OnLoad>
 						</Scripts>
 					</CheckButton>
@@ -3391,9 +3388,9 @@
 						</Anchors>
 						<Scripts>
 							<OnLoad>
-								XPerl_OptionsSetMyText(self, "XPERL_CONF_BUFFCOOLDOWNANY")
+								XPerl_OptionsSetMyText(self, "XPERL_CONF_BUFFCOOLDOWNOTHERS")
 								self.configBase = "XPerlDB.buffs"
-								self.configIndex = "cooldownAny"
+								self.configIndex = "cooldownOthers"
 								self.configClick = XPerl_OptionActions
 							</OnLoad>
 						</Scripts>
@@ -3408,13 +3405,12 @@
 						</Anchors>
 						<Scripts>
 							<OnLoad>
-								XPerl_OptionsSetMyText(self, "XPERL_CONF_BUFFCOUNTDOWN")
+								XPerl_OptionsSetMyText(self, "XPERL_CONF_BUFFCOUNTDOWNMINE")
 								self.configBase = "XPerlDB.buffs"
-								self.configIndex = "countdown"
+								self.configIndex = "countdownMine"
 								self.configClick = XPerl_OptionActions
 								self.Validate = function()
-									XPerl_Options_EnableSibling(self,"BuffCountdownStart")
-									XPerl_Options_EnableSibling(self,"BuffCountdownAny", "BuffCooldown")
+									XPerl_Options_EnableSibling(self, "BuffCountdownStart", "or", "BuffCountdownAny")
 								end
 							</OnLoad>
 						</Scripts>
@@ -3429,9 +3425,12 @@
 						</Anchors>
 						<Scripts>
 							<OnLoad>
-								XPerl_OptionsSetMyText(self, "XPERL_CONF_BUFFCOUNTDOWNANY")
+								XPerl_OptionsSetMyText(self, "XPERL_CONF_BUFFCOUNTDOWNOTHERS")
 								self.configBase = "XPerlDB.buffs"
-								self.configIndex = "countdownAny"
+								self.configIndex = "countdownOthers"
+								self.Validate = function()
+									XPerl_Options_EnableSibling(self, "BuffCountdownStart", "or", "BuffCountdown")
+								end
 								self.configClick = XPerl_OptionActions
 							</OnLoad>
 						</Scripts>
@@ -3496,7 +3495,7 @@
 						<Scripts>
 							<OnLoad>
 								self:SetScale(0.8)
-								self:SetMinMaxValues(1, 60)
+								self:SetMinMaxValues(1, 99)
 								self:SetValueStep(1)
 								XPerl_SliderSetup(self)
 								XPerl_OptionsSetMyText(self, "XPERL_CONF_BUFFCOUNTDOWNSTART")
@@ -10091,9 +10090,13 @@
 									XPerl_Options_EnableSibling(self, "Values", "HealthText")
 									XPerl_Options_EnableSibling(self, "Buffs")
 									XPerl_Options_EnableSibling(self, "Debuffs")
-									XPerl_Options_EnableSibling(self, "Castable")
-									XPerl_Options_EnableSibling(self, "BuffsRight")
-									XPerl_Options_EnableSibling(self, "BuffsInside", "BuffsRight")
+									XPerl_Options_EnableSibling(self, "Castable", "Buffs")
+									XPerl_Options_EnableSibling(self, "Curable", "Debuffs")
+									XPerl_Options_EnableSibling(self, "HideGroupBuffs", "Buffs")
+									XPerl_Options_EnableSibling(self, "BuffAnchor", "Buffs")
+									XPerl_Options_EnableSibling(self, "BuffSize", "Buffs")
+									XPerl_Options_EnableSibling(self, "DebuffAnchor", "Debuffs")
+									XPerl_Options_EnableSibling(self, "DebuffSize", "Debuffs")
 									XPerl_Options_EnableSibling(self, "BuffsUntilDebuffed")
 									XPerl_Options_EnableSibling(self, "BuffTooltipHelper")
 									XPerl_Options_EnableSibling(self, "BuffHelperNoSort", "BuffTooltipHelper")
@@ -10159,6 +10162,7 @@
 								self.configClick = XPerl_Raid_InParty_Reset
 								self.Validate = function()
 									XPerl_Options_EnableSibling(self, "ShowSolo")
+									XPerl_Options_EnableSibling(self, "PartyGroup1Only")
 								end
 								XPerl_Options_RegisterProtected(self)
 							</OnLoad>
@@ -10183,9 +10187,27 @@
 						</Scripts>
 					</CheckButton>
 
+					<CheckButton name="$parent_PartyGroup1Only" inherits="XPerlCheckButtonTemplate">
+						<Size><AbsDimension x="26" y="26"/></Size>
+						<Anchors>
+							<Anchor point="TOPLEFT" relativeTo="$parent_ShowSolo" relativePoint="BOTTOMLEFT">
+								<Offset><AbsDimension x="0" y="6"/></Offset>
+							</Anchor>
+						</Anchors>
+						<Scripts>
+							<OnLoad>
+								XPerl_OptionsSetMyText(self, "XPERL_CONF_RAID_PARTYGROUP1ONLY")
+								self.configBase = "XPerlDB.raid"
+								self.configIndex = "partyGroup1Only"
+								self.configClick = XPerl_Raid_InParty_Reset
+								XPerl_Options_RegisterProtected(self)
+							</OnLoad>
+						</Scripts>
+					</CheckButton>
+
 					<CheckButton name="$parent_RaidPets" inherits="XPerlCheckButtonTemplate">
 						<Anchors>
-							<Anchor point="TOP" relativeTo="$parent_ShowSolo" relativePoint="BOTTOMLEFT">
+							<Anchor point="TOP" relativeTo="$parent_PartyGroup1Only" relativePoint="BOTTOMLEFT">
 								<Offset><AbsDimension x="26" y="6"/></Offset>
 							</Anchor>
 						</Anchors>
@@ -10441,11 +10463,28 @@
 						</Scripts>
 					</CheckButton>
 
+					<CheckButton name="$parent_HideGroupBuffs" inherits="XPerlCheckButtonTemplate">
+						<Size><AbsDimension x="26" y="26"/></Size>
+						<Anchors>
+							<Anchor point="TOPLEFT" relativeTo="$parent_Curable" relativePoint="BOTTOMLEFT">
+								<Offset><AbsDimension x="0" y="6"/></Offset>
+							</Anchor>
+						</Anchors>
+						<Scripts>
+							<OnLoad>
+								XPerl_OptionsSetMyText(self, "XPERL_CONF_RAID_HIDEGROUPBUFFS")
+								self.configBase = "XPerlDB.raid.buffs"
+								self.configIndex = "hideGroupBuffs"
+								self.configClick = XPerl_Raid_OptionActions
+							</OnLoad>
+						</Scripts>
+					</CheckButton>
+
 					<!-- Replaces the old "Buffs to Right" / "Buffs Inside" pair, which could
 					     only ever describe one shared row. Each type picks its own side now. -->
 					<Frame name="$parent_BuffAnchor" inherits="UIDropDownMenuTemplate" enableMouse="true">
 						<Anchors>
-							<Anchor point="TOPLEFT" relativeTo="$parent_Curable" relativePoint="BOTTOMLEFT">
+							<Anchor point="TOPLEFT" relativeTo="$parent_HideGroupBuffs" relativePoint="BOTTOMLEFT">
 								<Offset><AbsDimension x="-18" y="-16"/></Offset>
 							</Anchor>
 						</Anchors>

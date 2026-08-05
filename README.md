@@ -26,6 +26,10 @@ look at raid frames.
 
 **Show When Solo** underneath keeps your frame up when you're not grouped.
 
+**Party Uses Group 1 Only** (on by default) keeps the other group blocks hidden while you're in a
+party, whatever their own settings say. Ignored when sorting by class, where the blocks are
+classes rather than groups.
+
 In a party everyone lands in the group 1 block, so it uses your group 1 position. Sort By Class
 works in a party too. Raid *pet* frames stay raid-only.
 
@@ -44,6 +48,33 @@ They used to switch each other off. Now independent, both on the **Raid tab**:
 
 **Buffs to Right** and **Buffs Inside** are gone — Position replaces them. **Buffs Until Debuffed**
 now only applies if you have debuffs turned off.
+
+## Buff order on raid frames
+
+Buffs used to show in whatever order the game happened to keep them, which reshuffles as they
+drop and get reapplied. Now it's **HoTs first, then whatever expires soonest**.
+
+HoTs hold a fixed order however much time is left on them, so the row doesn't jump around as
+ticks land: Rejuvenation, Regrowth, Wild Growth, Lifebloom, Renew, Riptide.
+
+**Raid tab → Hide Group Buffs** leaves the long group buffs out of the row — Mark of the Wild,
+Fortitude, Spirit, Shadow Protection, Arcane Intellect and the Blessings, single and group version
+of each. Worth ticking: only 8 icons fit per frame, and on a fully buffed target those alone can
+push your own HoTs off the row entirely.
+
+## Timers on raid buff and debuff icons
+
+Raid icons now get the sweep and the countdown number that the party and player frames have always
+had. Set on the **Buffs tab**, separately for your own auras and everyone else's:
+
+| Option | What it does |
+| --- | --- |
+| **My Cooldown** / **Their Cooldown** | The sweep around the icon. |
+| **My Countdown** / **Their Countdown** | Seconds remaining, as a number. Works with the sweep turned off. |
+| **Countdown Start** | How many seconds remaining before the number appears. 1 to 99, now defaults to 99. |
+
+Those four replace the old single on/off plus **All** pair, so "number but no sweep" is possible
+for the first time. Your existing settings carry over.
 
 ## Test mode — `/xperl test`
 
@@ -89,6 +120,15 @@ To confirm it works on your server, group cross-faction, stand next to them and 
 
 ## Fixes
 
+- Debuffs set to sit above a raid frame no longer overlap the name.
+- The options window is taller, so the Raid tab's settings all fit. Enable/disable per raid group
+  was already there under **Groups** — it was only ever hidden off the bottom of the panel.
+- The three "No sibling found called..." errors when leaving a group. Two options were replaced by
+  the Position dropdowns, but something still went looking for them.
+- Buff and debuff **Position**, **Size**, **Castable Only** and **Curable Only** now grey out when
+  their own row is switched off.
+- Test mode no longer draws a sample frame on top of your own when you're solo with Show When Solo
+  on, and every Raid tab option redraws the samples now — the raid pet ones didn't.
 - Frame scale and position no longer reset after a relog. Opening the options window could
   overwrite a saved scale with 50%, which moved the frame too.
 - Spells that wouldn't cast and action buttons that went blank. The addon was replacing some
