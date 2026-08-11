@@ -7621,6 +7621,7 @@
 									XPerl_Options_EnableSibling(self, "OnlyMyDebuffs")
 									XPerl_Options_EnableSibling(self, "BigDebuffs")
 									XPerl_Options_EnableSibling(self, "DebuffSize")
+									XPerl_Options_EnableSibling(self, "MyDebuffsAbove")
 								end
 							</OnLoad>
 						</Scripts>
@@ -7684,6 +7685,27 @@
 								self.flashFrame = {XPerl_TargetbuffFrame, XPerl_TargetdebuffFrame}
 								self.configBase = "XPerlDB.target.debuffs"
 								self.configIndex = "big"
+								self.configClick = XPerl_Target_Reset
+							</OnLoad>
+						</Scripts>
+					</CheckButton>
+
+					<!-- Fork: the existing Above option moves buffs and debuffs together. This pulls
+					     only the debuffs you cast into their own row on top of the frame, which is the
+					     row you want readable while you're watching the health bar. -->
+					<CheckButton name="$parent_MyDebuffsAbove" inherits="XPerlCheckButtonTemplate">
+						<Size><AbsDimension x="26" y="26"/></Size>
+						<Anchors>
+							<Anchor point="TOPLEFT" relativeTo="$parent_BigDebuffs" relativePoint="BOTTOMLEFT">
+								<Offset><AbsDimension x="0" y="6"/></Offset>
+							</Anchor>
+						</Anchors>
+						<Scripts>
+							<OnLoad>
+								XPerl_OptionsSetMyText(self, "XPERL_CONF_TARGET_MYDEBUFFSABOVE")
+								self.flashFrame = XPerl_TargetdebuffFrame
+								self.configBase = "XPerlDB.target.debuffs"
+								self.configIndex = "mineAbove"
 								self.configClick = XPerl_Target_Reset
 							</OnLoad>
 						</Scripts>
@@ -10393,6 +10415,8 @@
 								self.Validate = function()
 									XPerl_Options_EnableSibling(self, "Castable")
 									XPerl_Options_EnableSibling(self, "BuffSize")
+									XPerl_Options_EnableSibling(self, "HideGroupBuffs")
+									XPerl_Options_EnableSibling(self, "HideAuraBuffs")
 								end
 								-- Buffs and debuffs are independent rows now, so ticking one no
 								-- longer unticks the other.
@@ -10418,6 +10442,7 @@
 								self.Validate = function()
 									XPerl_Options_EnableSibling(self, "Curable")
 									XPerl_Options_EnableSibling(self, "DebuffSize")
+									XPerl_Options_EnableSibling(self, "HideSated")
 								end
 								self.configClick = function()
 										self.Validate()
@@ -10463,6 +10488,26 @@
 						</Scripts>
 					</CheckButton>
 
+					<!-- Sated is the one debuff worth a filter of its own: it is never actionable and
+					     never short, so on a row capped at 8 icons it is pure loss. Sits beside
+					     Curable Only, the other debuff row filter, to spend no extra height. -->
+					<CheckButton name="$parent_HideSated" inherits="XPerlCheckButtonTemplate">
+						<Size><AbsDimension x="26" y="26"/></Size>
+						<Anchors>
+							<Anchor point="TOPLEFT" relativeTo="$parent_Curable" relativePoint="TOPLEFT">
+								<Offset><AbsDimension x="110" y="0"/></Offset>
+							</Anchor>
+						</Anchors>
+						<Scripts>
+							<OnLoad>
+								XPerl_OptionsSetMyText(self, "XPERL_CONF_RAID_HIDESATED")
+								self.configBase = "XPerlDB.raid.debuffs"
+								self.configIndex = "hideSated"
+								self.configClick = XPerl_Raid_OptionActions
+							</OnLoad>
+						</Scripts>
+					</CheckButton>
+
 					<CheckButton name="$parent_HideGroupBuffs" inherits="XPerlCheckButtonTemplate">
 						<Size><AbsDimension x="26" y="26"/></Size>
 						<Anchors>
@@ -10475,6 +10520,25 @@
 								XPerl_OptionsSetMyText(self, "XPERL_CONF_RAID_HIDEGROUPBUFFS")
 								self.configBase = "XPerlDB.raid.buffs"
 								self.configIndex = "hideGroupBuffs"
+								self.configClick = XPerl_Raid_OptionActions
+							</OnLoad>
+						</Scripts>
+					</CheckButton>
+
+					<!-- The other buff row filter, beside Hide Group Buffs for the same reason.
+					     Group buffs are the long ones, auras are the ones with no timer at all. -->
+					<CheckButton name="$parent_HideAuraBuffs" inherits="XPerlCheckButtonTemplate">
+						<Size><AbsDimension x="26" y="26"/></Size>
+						<Anchors>
+							<Anchor point="TOPLEFT" relativeTo="$parent_HideGroupBuffs" relativePoint="TOPLEFT">
+								<Offset><AbsDimension x="118" y="0"/></Offset>
+							</Anchor>
+						</Anchors>
+						<Scripts>
+							<OnLoad>
+								XPerl_OptionsSetMyText(self, "XPERL_CONF_RAID_HIDEAURABUFFS")
+								self.configBase = "XPerlDB.raid.buffs"
+								self.configIndex = "hideAuraBuffs"
 								self.configClick = XPerl_Raid_OptionActions
 							</OnLoad>
 						</Scripts>

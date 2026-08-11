@@ -861,11 +861,20 @@ local groupBuffSpellIDs = {
 	19977, 25890,		-- Blessing of Light / Greater Blessing of Light
 }
 
-local hotOrder, groupBuffNames
+-- Bloodlust and Heroism's cooldown debuff, both faction versions. Nothing can be done about it,
+-- it sits there for ten minutes, and with a cap of 8 icons it can push a debuff you do need to
+-- see off the row - so the Hide Sated option leaves it out. Both are listed because a
+-- cross-faction group gets whichever version the shaman who cast it had.
+local satedSpellIDs = {
+	57724,		-- Sated (Bloodlust)
+	57723,		-- Exhaustion (Heroism)
+}
+
+local hotOrder, groupBuffNames, satedNames
 local emptyNames = {}
 local function AuraNameLists()
 	if (not hotOrder) then
-		local hots, group = {}, {}
+		local hots, group, sated = {}, {}, {}
 		local resolved = 0
 
 		for i = 1, #hotSpellIDs do
@@ -882,17 +891,51 @@ local function AuraNameLists()
 				resolved = resolved + 1
 			end
 		end
+		for i = 1, #satedSpellIDs do
+			local name = GetSpellInfo(satedSpellIDs[i])
+			if (name) then
+				sated[name] = true
+				resolved = resolved + 1
+			end
+		end
 
 		-- Don't keep the result until at least one name came back. Nothing resolving means the
 		-- spell data isn't readable yet, and caching that would silently kill buff ordering and
 		-- group buff hiding for the rest of the session.
 		if (resolved == 0) then
-			return emptyNames, emptyNames
+			return emptyNames, emptyNames, emptyNames
 		end
 
-		hotOrder, groupBuffNames = hots, group
+		hotOrder, groupBuffNames, satedNames = hots, group, sated
 	end
-	return hotOrder, groupBuffNames
+	return hotOrder, groupBuffNames, satedNames
+end
+
+-- AuraFiltered(name, duration, aconf, auraType)
+-- Whether the row's own name and duration filters leave this aura out. Shared with test mode, so a
+-- sample vanishing from the preview means the option really is working rather than the preview
+-- pretending it does. Castable Only and Curable Only are not here: those are handed to the client
+-- as a filter string and can only be judged against a real unit.
+local function AuraFiltered(name, duration, aconf, auraType)
+	local _, group, sated = AuraNameLists()
+
+	if (auraType == "d") then
+		return (aconf.hideSated and sated[name]) and true or false
+	end
+
+	if (aconf.hideGroupBuffs and group[name]) then
+		return true
+	end
+
+	-- Aura buffs are the permanent proximity ones - paladin auras, totem buffs, Blood Pact,
+	-- Trueshot Aura. Nothing about them changes while you stand next to the caster, so they are
+	-- pure noise on a raid frame. Keyed off having no duration rather than a spell list, which
+	-- needs no maintenance and covers the server's own auras too.
+	if (aconf.hideAuraBuffs and not (duration and duration > 0)) then
+		return true
+	end
+
+	return false
 end
 
 -- Scan past the icon cap so the sort picks from everything present rather than the cap
@@ -921,8 +964,7 @@ end
 -- CollectSortedBuffs(partyid, aconf, filter)
 -- Fills auraList with what should be shown, in display order. Returns how many.
 local function CollectSortedBuffs(partyid, aconf, filter)
-	local hots, group = AuraNameLists()
-	local hideGroup = aconf.hideGroupBuffs
+	local hots = AuraNameLists()
 	local now = GetTime()
 
 	for i = #auraList, 1, -1 do
@@ -936,7 +978,7 @@ local function CollectSortedBuffs(partyid, aconf, filter)
 			break
 		end
 
-		if (tex and not (hideGroup and group[name])) then
+		if (tex and not AuraFiltered(name, duration, aconf, "b")) then
 			n = n + 1
 			local e = auraPool[n]
 			if (not e) then
@@ -962,6 +1004,43 @@ local function CollectSortedBuffs(partyid, aconf, filter)
 	return n
 end
 
+-- CollectDebuffs(partyid, aconf, filter)
+-- Fills auraList with the debuffs to show, in the game's own order. Debuffs are not sorted -
+-- unlike buffs their order isn't shuffled by slot reuse, and a debuff row that rearranged itself
+-- would be harder to read. This exists so a hidden debuff closes the row up behind it instead of
+-- leaving a hole, which a straight index-to-icon loop cannot do. Returns how many.
+local function CollectDebuffs(partyid, aconf, filter)
+	for i = #auraList, 1, -1 do
+		auraList[i] = nil
+	end
+
+	local n = 0
+	for index = 1, AURA_SCAN_MAX do
+		local name, _, tex, _, _, duration, endTime, caster = XPerl_UnitDebuff(partyid, index, filter, true)
+		if (not name) then
+			break
+		end
+
+		if (tex and not AuraFiltered(name, duration, aconf, "d")) then
+			n = n + 1
+			local e = auraPool[n]
+			if (not e) then
+				e = {}
+				auraPool[n] = e
+			end
+			auraList[n] = e
+
+			e.index = index
+			e.tex = tex
+			e.duration = duration
+			e.endTime = endTime
+			e.caster = caster
+		end
+	end
+
+	return n
+end
+
 -- UpdateAuraType(self, auraType, aconf, filter)
 -- Returns how many icons ended up shown.
 local function UpdateAuraType(self, auraType, aconf, filter)
@@ -970,21 +1049,16 @@ local function UpdateAuraType(self, auraType, aconf, filter)
 	local maxIcons = aconf.max or 8
 	local count = 0
 
-	-- Buffs come back sorted, so an icon's position no longer matches its aura index. Debuffs
-	-- are left in the game's order.
-	local sorted = (auraType == "b") and CollectSortedBuffs(partyid, aconf, filter) or nil
+	-- Both types are collected first: buffs sorted, debuffs in the game's order with anything
+	-- filtered out closed up. Either way an icon's position no longer matches its aura index, so
+	-- the real index travels with the entry for the tooltip to look up.
+	local collected = (auraType == "b") and CollectSortedBuffs(partyid, aconf, filter) or CollectDebuffs(partyid, aconf, filter)
 
 	for slot = 1, maxIcons do
 		local index, tex, duration, endTime, caster
-		if (sorted) then
-			local e = (slot <= sorted) and auraList[slot]
-			if (e) then
-				index, tex, duration, endTime, caster = e.index, e.tex, e.duration, e.endTime, e.caster
-			end
-		else
-			index = slot
-			local name, rank, stacks, aType
-			name, rank, tex, stacks, aType, duration, endTime, caster = XPerl_UnitDebuff(partyid, slot, filter, true)
+		local e = (slot <= collected) and auraList[slot]
+		if (e) then
+			index, tex, duration, endTime, caster = e.index, e.tex, e.duration, e.endTime, e.caster
 		end
 
 		local button = GetAuraButton(container, slot, tex, auraType)	-- 'tex' flags whether to create icon
@@ -1064,7 +1138,9 @@ local function UpdateBuffs(self)
 	-- show at once it has nothing left to do, so it now only applies when debuffs are off.
 	-- The old debuffsForced flag went with it - the tooltip reads the icon's own auraType.
 	if (showBuffs and not showDebuffs and rconf.buffs.untilDebuffed) then
-		if (XPerl_UnitDebuff(partyid, 1, (rconf.debuffs.curable == 1) and "RAID", true)) then
+		-- Asked through the same collection the debuff row would use, so a debuff that row is set
+		-- to hide (Sated) doesn't swap the buff row out for an empty debuff row.
+		if (CollectDebuffs(partyid, rconf.debuffs, (rconf.debuffs.curable == 1) and "RAID") > 0) then
 			showBuffs, showDebuffs = nil, true
 		end
 	end
@@ -1136,34 +1212,84 @@ end
 -- click-cast on, and anything needing a live unit isn't simulated (aggro, range fading,
 -- incoming heals, res and AFK flags). That's the trade for previewing without a raid.
 --
--- Aura counts deliberately climb 1..8 across the ten frames, so wherever the wrap point
--- falls at the chosen icon size, some frame on screen is showing it.
+-- The samples are two of each *kind* of aura, and they are judged by the row's own filters through
+-- the same AuraFiltered the live rows use. So the preview is also the answer to "is Hide Sated
+-- actually doing anything?" - tick it and the two Sated samples go, because the option removed
+-- them, not because the preview was told to fake it.
 ----------------------------------------------------------------------
 
 local testMode
 local TestGroups = {}
 
-local testBuffIcons = {
-	"Interface\\Icons\\Spell_Holy_PowerWordShield",
-	"Interface\\Icons\\Spell_Holy_Renew",
-	"Interface\\Icons\\Spell_Holy_WordFortitude",
-	"Interface\\Icons\\Spell_Holy_DivineSpirit",
-	"Interface\\Icons\\Spell_Nature_Regeneration",
-	"Interface\\Icons\\Spell_Magic_MageArmor",
-	"Interface\\Icons\\Ability_Warrior_BattleShout",
-	"Interface\\Icons\\Spell_Nature_MagicImmunity",
+----------------------------------------------------------------------
+-- Sample auras
+--
+-- Real spell IDs, so the name-based filters (Hide Group Buffs, Hide Sated) and the duration-based
+-- one (Hide Auras) judge them exactly as they judge the real thing, and the icon is the real icon.
+-- A spell ID this client doesn't know is skipped rather than drawn as a question mark.
+--
+--   duration/left  what the sweep and the countdown number are driven from. left is chosen to
+--                  straddle a typical Countdown Start, so some numbers are showing and some
+--                  aren't - which is the thing that setting is hard to judge blind.
+--   mine           picks My Cooldown/My Countdown over Their Cooldown/Their Countdown, the same
+--                  way a real aura's caster does. Every row has some of each.
+--   castable       whether Castable Only would keep it. curable, likewise, for Curable Only.
+--                  Those two are handed to the client as a filter string, so they cannot be
+--                  judged against a made-up aura and are applied from this flag instead.
+--
+-- No duration at all means an aura buff, which is what Hide Auras keys off.
+----------------------------------------------------------------------
+
+local testBuffSamples = {
+	-- HoTs of mine. Also shows the HoT-first ordering, and My Cooldown/My Countdown.
+	{id = 774,	duration = 15,	left = 11,	mine = true,	castable = true},	-- Rejuvenation
+	{id = 139,	duration = 18,	left = 5,	mine = true,	castable = true},	-- Renew
+
+	-- Class buffs: what Hide Group Buffs takes out. Long, so no countdown number at 99 or less.
+	{id = 1126,	duration = 3600, left = 2400,			castable = true},	-- Mark of the Wild
+	{id = 1243,	duration = 3600, left = 1500,			castable = true},	-- Power Word: Fortitude
+
+	-- Auras: no duration, no sweep, no number. What Hide Auras takes out.
+	{id = 465,							castable = true},	-- Devotion Aura
+	{id = 19506,							castable = true},	-- Trueshot Aura
+
+	-- Someone else's own buffs, which you can't cast: what Castable Only takes out. Their
+	-- Cooldown and Their Countdown apply to these.
+	{id = 22812,	duration = 12,	left = 8},							-- Barkskin
+	{id = 588,	duration = 1800, left = 900},							-- Inner Fire
 }
 
-local testDebuffIcons = {
-	"Interface\\Icons\\Spell_Shadow_ShadowWordPain",
-	"Interface\\Icons\\Spell_Shadow_CurseOfSargeras",
-	"Interface\\Icons\\Spell_Nature_NullifyPoison",
-	"Interface\\Icons\\Spell_Shadow_AbominationExplosion",
-	"Interface\\Icons\\Spell_Frost_FrostShock",
-	"Interface\\Icons\\Spell_Fire_Immolation",
-	"Interface\\Icons\\Spell_Shadow_UnholyFrenzy",
-	"Interface\\Icons\\Spell_Shadow_AntiShadow",
+local testDebuffSamples = {
+	-- Bloodlust and Heroism's cooldown debuff: what Hide Sated takes out.
+	{id = 57724,	duration = 600,	left = 420},							-- Sated
+	{id = 57723,	duration = 600,	left = 240},							-- Exhaustion
+
+	-- Dispellable, one Magic and one Curse: what Curable Only keeps. The first is mine.
+	{id = 589,	duration = 18,	left = 12,	mine = true,	curable = true},	-- Shadow Word: Pain
+	{id = 980,	duration = 24,	left = 7,			curable = true},	-- Curse of Agony
+
+	-- Nothing removes these: a bleed and a raid boss debuff. What Curable Only takes out.
+	{id = 12162,	duration = 12,	left = 9},							-- Deep Wounds
+	{id = 72293,	duration = 120,	left = 105},							-- Mark of the Fallen Champion
 }
+
+-- TestSampleInfo(sample)
+-- Name and icon for a sample, resolved once. Returns nothing for a spell this client doesn't have,
+-- which is how a sample removes itself rather than previewing a missing icon.
+local function TestSampleInfo(sample)
+	if (not sample.resolved) then
+		local name, _, tex = GetSpellInfo(sample.id)
+		if (not name or not tex) then
+			sample.resolved = "missing"
+		else
+			sample.name, sample.tex, sample.resolved = name, tex, true
+		end
+	end
+
+	if (sample.resolved == true) then
+		return sample.name, sample.tex
+	end
+end
 
 -- Ten sample members over two groups. hp/mp are fractions so the bars show a spread rather
 -- than ten full bars, which is what you actually want when judging colours and text.
@@ -1205,34 +1331,149 @@ local function TestClassColour(class)
 	return max(0, min(1, c.r * b)), max(0, min(1, c.g * b)), max(0, min(1, c.b * b))
 end
 
--- TestAuras(frame, auraType, aconf, count, icons)
--- Fills a container with 'count' sample icons and then hands off to the real LayoutAuras, so
--- the wrapping and positioning here is not a reimplementation of it.
-local function TestAuras(frame, auraType, aconf, count, icons)
-	if (not aconf.enable or count < 1) then
+-- PrepareTestAuras(auraType, aconf, samples, out)
+-- Which samples the row's options leave, in the order the live row would show them. Worked out once
+-- per refresh and handed to every sample frame, because it cannot differ between them - the filters
+-- are config, not per unit. Entry tables are reused, so dragging a slider isn't making garbage.
+local testBuffList, testDebuffList = {}, {}
+-- A pool per row. One shared pool would hand the buff list and the debuff list the same entry
+-- tables, and preparing the second row would overwrite what the first one had just worked out.
+local testPools = {b = {}, d = {}}
+
+local function PrepareTestAuras(auraType, aconf, samples, out)
+	for i = #out, 1, -1 do
+		out[i] = nil
+	end
+
+	if (not aconf.enable) then
+		return out
+	end
+
+	local hots = AuraNameLists()
+	local maxIcons = aconf.max or 8
+	local pool = testPools[auraType]
+
+	-- The one filter that can't be asked of a made-up aura, so each sample declares the answer
+	local clientFilter = (auraType == "b") and (aconf.castable == 1) or (auraType == "d") and (aconf.curable == 1)
+
+	local n = 0
+	for i = 1, #samples do
+		local sample = samples[i]
+		local name, tex = TestSampleInfo(sample)
+
+		if (name) then
+			local hidden = AuraFiltered(name, sample.duration, aconf, auraType)
+
+			if (not hidden and clientFilter) then
+				hidden = not ((auraType == "b") and sample.castable or (auraType == "d") and sample.curable)
+			end
+
+			if (not hidden) then
+				n = n + 1
+				local e = pool[n]
+				if (not e) then
+					e = {}
+					pool[n] = e
+				end
+				out[n] = e
+
+				e.sample = sample
+				e.tex = tex
+				e.index = i
+				e.hot = hots[name]
+				e.left = sample.left or NO_EXPIRY
+			end
+		end
+	end
+
+	-- The same sort the live buff row uses, so the preview shows the order you will really get:
+	-- HoTs first in their fixed order, then whatever expires soonest. Debuffs aren't sorted there
+	-- and aren't sorted here.
+	if (auraType == "b" and n > 1) then
+		table.sort(out, AuraSortCompare)
+	end
+
+	-- Trim after sorting, so the cap drops what the row would really drop
+	for i = #out, maxIcons + 1, -1 do
+		out[i] = nil
+	end
+
+	return out
+end
+
+-- Sample timers. One entry per drawn icon, holding the sample it came from and when its made up
+-- aura runs out, so each one can be re-armed as it expires. Samples run from five seconds to
+-- twenty five minutes, so a single refresh interval can't serve them: anything longer than the
+-- shortest leaves those icons sitting expired, which is the state you're trying to judge Countdown
+-- Start against. Entries are pooled and testTimerCount says how many are live.
+local testTimers = {}
+local testTimerCount = 0
+
+-- TestTimerAdd(button, sample, expires)
+local function TestTimerAdd(button, sample, expires)
+	testTimerCount = testTimerCount + 1
+
+	local e = testTimers[testTimerCount]
+	if (not e) then
+		e = {}
+		testTimers[testTimerCount] = e
+	end
+
+	e.button, e.sample, e.expires = button, sample, expires
+end
+
+-- TestArmTimer(button, sample, now)
+-- Through the same SetTimer the live rows use, with the sample's own idea of who cast it, so the
+-- sweep and the countdown preview whatever My/Their settings are in force.
+local function TestArmTimer(button, sample, now)
+	XPerl_CooldownFrame_SetTimer(button.cooldown, now + sample.left - sample.duration, sample.duration, 1, sample.mine)
+end
+
+-- TestAuras(frame, auraType, list, aconf)
+-- Draws a prepared list and hands off to the real LayoutAuras, so the wrapping and positioning here
+-- is not a reimplementation of it.
+local function TestAuras(frame, auraType, list, aconf)
+	local count = #list
+
+	if (not aconf.enable or count == 0) then
 		HideAuras(frame, auraType)
 		return
 	end
 
 	local container = GetAuraContainer(frame, auraType)
-	local maxIcons = aconf.max or 8
-	if (count > maxIcons) then
-		count = maxIcons
+	local now = GetTime()
+
+	for slot = 1, count do
+		local e = list[slot]
+		local sample = e.sample
+		local button = GetAuraButton(container, slot, e.tex, auraType)
+
+		if (button) then
+			button.icon:SetTexture(e.tex)
+
+			if (button.cooldown) then
+				if (sample.duration and sample.left) then
+					TestArmTimer(button, sample, now)
+					TestTimerAdd(button, sample, now + sample.left)
+				else
+					button.cooldown:Hide()		-- an aura buff: no duration, so nothing to run
+				end
+			end
+
+			if (not button:IsShown()) then
+				button:Show()
+			end
+		end
 	end
 
-	for i = 1, maxIcons do
-		local tex = (i <= count) and icons[((i - 1) % #icons) + 1]
-		local button = GetAuraButton(container, i, tex, auraType)
-		if (button) then
-			-- Samples have no duration, so clear any sweep left over from a real aura that
-			-- used this same icon slot before test mode was turned on.
-			if (button.cooldown) then
-				button.cooldown:Hide()
-			end
-			if (tex) then
-				button.icon:SetTexture(tex)
-				button:Show()
-			elseif (button:IsShown()) then
+	-- Anything left from a longer list last time, or from a real aura before test mode came on
+	if (container.buff) then
+		for slot = count + 1, #container.buff do
+			local button = container.buff[slot]
+			if (button and button:IsShown()) then
+				if (button.cooldown) then
+					button.cooldown:Hide()
+				end
 				button:Hide()
 			end
 		end
@@ -1282,6 +1523,13 @@ function XPerl_Raid_TestMode_Refresh()
 
 	local a = testAnchors[rconf.anchor] or testAnchors.TOP
 	local spacing = rconf.spacing or 0
+
+	-- Which samples the current options leave, once for all ten frames
+	PrepareTestAuras("b", rconf.buffs, testBuffSamples, testBuffList)
+	PrepareTestAuras("d", rconf.debuffs, testDebuffSamples, testDebuffList)
+
+	-- The icons are about to be re-armed from scratch, so drop what the ticker was watching
+	testTimerCount = 0
 
 	for group = 1, #testRoster do
 		local g = TestGroups[group] or CreateTestGroup(group)
@@ -1362,12 +1610,12 @@ function XPerl_Raid_TestMode_Refresh()
 				f.nameFrame.text:SetText(member.name)
 				f.nameFrame.text:SetTextColor(r, gr, b)
 
-				-- 1..8 across the ten frames, so the wrap point is always visible somewhere
-				local count = ((group - 1) * #testRoster[group]) + i
-				count = ((count - 1) % 8) + 1
-
-				TestAuras(f, "b", rconf.buffs, count, testBuffIcons)
-				TestAuras(f, "d", rconf.debuffs, count, testDebuffIcons)
+				-- Every sample frame shows the same set. Which auras are in it is decided by the
+				-- options, not by the frame, and that is the whole point of it - ten frames each
+				-- showing a different count told you where the row wraps but nothing about
+				-- whether your filters do what you wanted.
+				TestAuras(f, "b", testBuffList, rconf.buffs)
+				TestAuras(f, "d", testDebuffList, rconf.debuffs)
 
 				f:Show()
 			  end
@@ -1375,6 +1623,32 @@ function XPerl_Raid_TestMode_Refresh()
 		end
 	end
 end
+
+-- The sample sweeps and countdowns are real timers, so left alone they run out and the row goes
+-- quiet - which reads as broken when you are sitting there judging Countdown Start. This re-arms
+-- each icon as it expires, on its own sample's cycle, so a five second HoT restarts every five
+-- seconds while a twenty five minute buff is left alone. Only the timers are touched: nothing here
+-- re-lays anything out, so it is safe to leave running and does no work when nothing has expired.
+local TEST_TICK = 0.5
+
+local testTicker = CreateFrame("Frame")
+testTicker:Hide()
+testTicker:SetScript("OnUpdate", function(self, elapsed)
+	self.elapsed = (self.elapsed or 0) + elapsed
+	if (self.elapsed < TEST_TICK) then
+		return
+	end
+	self.elapsed = 0
+
+	local now = GetTime()
+	for i = 1, testTimerCount do
+		local e = testTimers[i]
+		if (e.expires and now >= e.expires and e.button.cooldown) then
+			e.expires = now + e.sample.left
+			TestArmTimer(e.button, e.sample, now)
+		end
+	end
+end)
 
 -- XPerl_Raid_TestMode
 -- on = true/false to set it, nil to toggle. Returns the state it ended up in.
@@ -1394,8 +1668,12 @@ function XPerl_Raid_TestMode(on)
 
 	if (testMode) then
 		XPerl_Raid_TestMode_Refresh()
+		testTicker.elapsed = 0
+		testTicker:Show()
 		XPerl_Notice(XPERL_TEST_MODE_ON)
 	else
+		testTicker:Hide()
+		testTimerCount = 0
 		for group, g in pairs(TestGroups) do
 			g.holder:Hide()
 		end
@@ -1638,6 +1916,49 @@ function XPerl_Raid_ShouldShow()
 	return rconf.solo and true or false
 end
 
+-- XPerl_Raid_CoversParty
+-- Whether the raid frames are really drawing a frame for everybody in this party, which is a
+-- different question from XPerl_Raid_ShouldShow. The party frames hide themselves on the answer, so
+-- "the frames are up" is not good enough: XPerl_Raid_HideShowRaid only shows a block whose own
+-- setting is on, and saying yes for a block that is turned off would hide the party frames too and
+-- leave those members with no frame at all.
+--
+-- False in a raid. The party frames' own "Show In Raid" has always decided that case, and this is
+-- only about the party one.
+function XPerl_Raid_CoversParty()
+	if (GetNumRaidMembers() > 0 or not XPerl_Raid_ShouldShow()) then
+		return false
+	end
+
+	if (not rconf.sortByClass) then
+		-- Every party member is reported as subgroup 1, so that one block is all of them
+		return rconf.group[1] == 1 and true or false
+	end
+
+	-- Sorting by class the blocks are classes, so every class actually present needs its own on
+	for i = 0, GetNumPartyMembers() do
+		local unit = (i == 0) and "player" or ("party"..i)
+		local _, class = UnitClass(unit)
+
+		if (class) then
+			local on
+			for n = 1, WoWclassCount do
+				local c = rconf.class[n]
+				if (c and c.name == class) then
+					on = c.enable and true or false
+					break
+				end
+			end
+
+			if (not on) then
+				return false
+			end
+		end
+	end
+
+	return true
+end
+
 -- HideShowRaid
 -- XPerl_Raid_PartyGroup1Only()
 -- True when we're being shown for a party rather than a raid and only the group 1 block should
@@ -1714,6 +2035,43 @@ function XPerl_Raid_Events:VARIABLES_LOADED()
 	XPerl_Raid_Events.VARIABLES_LOADED = nil
 end
 
+----------------------------------------------------------------------
+-- Instance zone-in refresh
+--
+-- Zoning into an instance would occasionally leave your own frame out of the group. The secure
+-- headers fill themselves from the roster, and the roster the client reports while an instance is
+-- still loading can be short of you - the header then has nothing to draw for you and does not try
+-- again until the next roster event, which never comes if nobody joins or leaves.
+--
+-- Re-applying the header attributes makes them re-fill from the roster as it stands a moment
+-- later, which is what the session's first PLAYER_ENTERING_WORLD already does. Deferred rather
+-- than immediate because the roster at the point the event fires is the thing we can't trust.
+-- There is no C_Timer on this client, so it's a one-shot OnUpdate that stops itself.
+----------------------------------------------------------------------
+local ZONE_REFRESH_DELAY = 1
+
+local zoneRefresh = CreateFrame("Frame")
+zoneRefresh:Hide()
+zoneRefresh:SetScript("OnUpdate", function(self, elapsed)
+	self.elapsed = (self.elapsed or 0) + elapsed
+	if (self.elapsed < ZONE_REFRESH_DELAY) then
+		return
+	end
+
+	self.elapsed = nil
+	self:Hide()
+
+	rosterUpdated = true			-- so the update driver redoes XPerl_Roster along with it
+	XPerl_Raid_ChangeAttributes()		-- queues itself until combat ends if it has to
+	XPerl_Raid_UpdateDisplayAll()
+end)
+
+-- ScheduleZoneRefresh()
+local function ScheduleZoneRefresh()
+	zoneRefresh.elapsed = nil
+	zoneRefresh:Show()			-- OnUpdate only runs on a shown frame
+end
+
 -- XPerl_Raid_Events:PLAYER_ENTERING_WORLDsmall()
 function XPerl_Raid_Events:PLAYER_ENTERING_WORLDsmall()
 	-- Force a re-draw. Events not processed for anything that happens during
@@ -1722,6 +2080,7 @@ function XPerl_Raid_Events:PLAYER_ENTERING_WORLDsmall()
 
 	if (IsInInstance()) then
 		XPerl_ModuleLoad("XPerl_CustomHighlight")
+		ScheduleZoneRefresh()
 	end
 end
 
@@ -1741,6 +2100,8 @@ function XPerl_Raid_Events:PLAYER_ENTERING_WORLD()
 
 	if (IsInInstance()) then
 		XPerl_ModuleLoad("XPerl_CustomHighlight")
+		-- Logging in inside an instance races the roster the same way zoning into one does
+		ScheduleZoneRefresh()
 	end
 
 	XPerl_Raid_Events.PLAYER_ENTERING_WORLD = XPerl_Raid_Events.PLAYER_ENTERING_WORLDsmall

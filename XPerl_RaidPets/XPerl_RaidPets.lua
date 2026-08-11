@@ -42,14 +42,31 @@ local XPerl_RaidPets_HighlightCallback
 do
 	local guids
 	-- XPerl_RaidPet_UpdateGUIDs
+	-- Walks the party when there is no raid, now that the pet block covers a party too. Without
+	-- that, everything keyed off this map - the debuff and custom highlights, which are looked up
+	-- by GUID - silently did nothing for party pets.
 	function XPerl_RaidPet_UpdateGUIDs()
 		del(guids)
 		guids = new()
-		for i = 1,GetNumRaidMembers() do
-			local id = "raidpet"..i
+
+		local prefix, count
+		if (GetNumRaidMembers() > 0) then
+			prefix, count = "raidpet", GetNumRaidMembers()
+		else
+			prefix, count = "partypet", GetNumPartyMembers()
+		end
+
+		for i = 1,count do
+			local id = prefix..i
 			if (UnitExists(id)) then
 				guids[UnitGUID(id)] = RaidPetFrameArray[id]
 			end
+		end
+
+		-- Your own pet, which only ever appears in the party case: in a raid you are a raid member
+		-- and already covered by the loop above.
+		if (GetNumRaidMembers() == 0 and UnitExists("pet")) then
+			guids[UnitGUID("pet")] = RaidPetFrameArray["pet"]
 		end
 	end
 
@@ -315,6 +332,18 @@ local function SetMainHeaderAttributes(self)
 	self:SetAttribute("maxColumns", 7)
 	self:SetAttribute("columnAnchorPoint", "LEFT")
 
+	-- Raid pets in a party, to match the raid frames' Show In Party. SecureRaidPetHeaderTemplate
+	-- is the pet header plus showRaid = true and nothing else, so it ignored a party entirely -
+	-- which left the pet block missing from a group the raid frames were otherwise covering in
+	-- full. The pet header walks group members and resolves each one's pet, and it does that for
+	-- a party as well as a raid, so the same three attributes the group headers use apply here.
+	--
+	-- Followed from the raid config, not the pet config: pets appear wherever the frames they
+	-- belong beside do.
+	self:SetAttribute("showParty", conf.raid.inParty and true or false)
+	self:SetAttribute("showPlayer", conf.raid.inParty and true or false)
+	self:SetAttribute("showSolo", (conf.raid.inParty and conf.raid.solo) and true or false)
+
 	self:SetAttribute("point", conf.raid.anchor)
 	self:SetAttribute("minWidth", 80)
 	self:SetAttribute("minHeight", 10)
@@ -348,15 +377,38 @@ function XPerl_RaidPets_ChangeAttributes()
 	XPerl_ProtectedCall(SetMainHeaderAttributes, XPerl_Raid_GrpPets)
 end
 
+-- RaidPetsShouldShow()
+-- In a raid, unchanged: the pet block shows whether or not the raid frames themselves are running,
+-- which is how it always behaved. In a party it follows the raid frames, and that means asking
+-- whether that module is actually running - its config stays readable after teardown, so going by
+-- the config alone would put a pet block on screen with no raid frames anywhere near it.
+local function RaidPetsShouldShow()
+	if (GetNumRaidMembers() > 0) then
+		return true
+	end
+
+	if (not XPerl_ModuleLoaded("XPerl_RaidFrames") or not XPerl_Raid_ShouldShow) then
+		return false
+	end
+
+	return XPerl_Raid_ShouldShow() and true or false
+end
+
 -- XPerl_RaidPets_HideShow
 function XPerl_RaidPets_HideShow()
 	-- The One-Group Raid Show coupling used to live here: the pet header covers every raid
 	-- pet at once and can't leave out one subgroup, so it hid itself whenever the party pet
 	-- frames already covered everybody. With that option gone there is nothing to avoid.
 	--
-	-- Raid pets stay raid-only. The party pet module already covers pets in a party, and
-	-- showing them here as well would double up for anyone running both.
-	local on = (GetNumRaidMembers() > 0 and rconf.enable)
+	-- Raid pets used to be raid-only, on the grounds that the party pet module covers a party.
+	-- But the raid frames cover a party now, and the party frames take themselves off screen when
+	-- they do - which took the party pet frames with them and left the pets missing entirely. So
+	-- the pet block follows the same question the group frames answer: are the raid frames up?
+	--
+	-- If you deliberately run both sets at once (Party tab, Show In Raid) you get both sets of
+	-- pets, the same as you get both sets of member frames.
+	local shown = RaidPetsShouldShow()
+	local on = (shown and rconf.enable)
 
 	local events = {"UNIT_HEALTH", "UNIT_MAXHEALTH", "UNIT_NAME_UPDATE", "UNIT_AURA"}
 	for i,event in pairs(events) do
@@ -370,8 +422,13 @@ function XPerl_RaidPets_HideShow()
 	if (rconf.enable) then
 		XPerl_Raid_GrpPets:Show()
 		XPerl_RaidPets_Frame:Show()
-		if (GetNumRaidMembers() > 0) then
+		-- The title is also the pet block's parent frame, so hiding it takes the pets with it.
+		-- It never used to be hidden again on leaving a raid, which left the header up with the
+		-- title drag frame for a block that had nothing in it.
+		if (shown) then
 			XPerl_Raid_TitlePets:Show()
+		else
+			XPerl_Raid_TitlePets:Hide()
 		end
 	else
 		XPerl_RaidPets_Frame:Hide()
@@ -437,7 +494,10 @@ function XPerl_RaidPets_OptionActions()
 	XPerl_RaidPets_Titles()
 	XPerl_Raid_TitlePets:SetScale((conf.raid and conf.raid.scale) or 0.8)
 
-	if (rconf.enable) then
+	-- Same question HideShow asks, so this doesn't put the block straight back up for a group that
+	-- isn't showing pet frames. Unlocked is the exception: the title is the drag handle, so it has
+	-- to be there to be positioned while you're setting frames up on your own.
+	if (rconf.enable and (RaidPetsShouldShow() or XPerlLocked == 0)) then
 		XPerl_Raid_TitlePets:Show()
 	else
 		XPerl_Raid_TitlePets:Hide()

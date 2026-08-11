@@ -270,6 +270,11 @@ function XPerl_Raid_OptionActions()
         	XPerl_Raid_Position()
 		XPerl_Raid_Set_Bits(XPerl_Raid_Frame)
 		XPerl_Raid_UpdateDisplayAll()
+		-- Whether the party frames show themselves depends on whether the raid frames are
+		-- covering the party, so anything turning the raid frames on or off has to re-ask.
+		if (XPerl_Party_CheckRaid) then
+			XPerl_Party_CheckRaid()
+		end
 		if (XPerl_RaidPets_OptionActions) then
 			XPerl_RaidPets_OptionActions()
 		end
@@ -2335,6 +2340,7 @@ local function XPerl_Target_ConfigDefault(default, section)
 			size		= 29,
 			curable		= 0,
 			big		= 1,			-- 2.3.6
+--			mineAbove	= nil,			-- Debuffs I cast in their own row above the frame
 		},
 --		reactionHighlight	= nil,			-- 1.8.6
 		healerMode = {
@@ -2602,6 +2608,7 @@ local function XPerl_Raid_ConfigDefault(default)
 			size		= 10,
 			max		= 8,
 --			hideGroupBuffs	= nil,			-- Off, so the row looks the same until asked otherwise
+--			hideAuraBuffs	= nil,			-- Off likewise. Hides buffs with no duration at all
 --			untilDebuffed	= nil,			-- 2.1.3
 		},
 		debuffs = {
@@ -2610,6 +2617,7 @@ local function XPerl_Raid_ConfigDefault(default)
 			anchor		= "TOP",
 			size		= 12,
 			max		= 8,
+--			hideSated	= nil,			-- Off, so nothing disappears until asked
 		},
 --		mana			= nil,
 		healerMode = {

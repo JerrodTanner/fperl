@@ -136,10 +136,56 @@ is still unverified in game. The code touchpoints:
   This replaced "One-Group Raid Show", which had the party frames stand in for your own raid
   subgroup — the inverse approach. If you find a reference to `XPerl_Party_ReplacesMyRaidGroup`
   or `party.smallRaid`, it is a leftover.
+  Two things follow from the raid frames covering a party. `CheckRaid()` in `XPerl_Party.lua` hides
+  the party header when the raid frames cover the group unless `pconf.inRaid` ("Show In Raid") — the
+  party pet frames go with it, being children. It asks `XPerl_Raid_CoversParty()`, **not**
+  `XPerl_Raid_ShouldShow()`: the latter only says the frames are up, while a group block turned off
+  under Groups draws nobody, and hiding the party frames on that would leave members with no frame
+  at all. Both of those, and the pet ones below, must first ask
+  `XPerl_ModuleLoaded("XPerl_RaidFrames")`, because in this build the raid config stays readable
+  after that module is torn down. Anything that changes whether the raid frames are up has to call
+  `XPerl_Party_CheckRaid()`; `XPerl_Raid_OptionActions` does, and that wrapper checks
+  `XPerl_ModuleLoaded("XPerl_Party")` itself — every other route into `CheckRaid` is a handler on
+  frames teardown has already unregistered, but the options panel always runs, so without it a Raid
+  tab click would put a disabled module's dead party frames back up. And `XPerl_RaidPets_HideShow`
+  follows `RaidPetsShouldShow()` rather than `GetNumRaidMembers() > 0`, with `showParty`/`showPlayer`/
+  `showSolo` set on `XPerl_Raid_GrpPets` from the **raid** config — the pet header walks group
+  members and resolves each one's pet, so it fills from a party the same way. `XPerl_Raid_TitlePets`
+  is the pet block's parent, so hiding it hides the pets; `XPerl_RaidPets_OptionActions` decides its
+  visibility too and has to agree with `HideShow` (plus `XPerlLocked == 0`, so it can still be
+  dragged while unlocked). `XPerl_RaidPet_UpdateGUIDs` walks `partypet1..4` and `pet` when there is
+  no raid, or the GUID-keyed highlight lookups do nothing for party pets.
+- **Instance zone-in refresh** (`ScheduleZoneRefresh` in `XPerl_Raid.lua`) — the roster the client
+  reports while an instance is still loading can be missing the player, and the secure header then
+  has nothing to draw for them and won't retry until the next roster event. So
+  `PLAYER_ENTERING_WORLD` schedules a deferred `XPerl_Raid_ChangeAttributes()` (one second, via a
+  self-stopping `OnUpdate` — no `C_Timer`), which re-fills every header. Deferred deliberately: the
+  roster at event time is the thing that can't be trusted.
+- **My Debuffs Above** (`target.debuffs.mineAbove`, `XPerl_Target.lua`) — `buffs.above` moves buffs
+  and debuffs together because both rows are one chained stack, so this splits the debuff list by
+  caster instead: `SplitMyDebuffs` reads `button.mine` (stamped in `XPerl_Unit_UpdateBuffs`) and
+  `LayoutMyDebuffRow` anchors my icons above the frame, while the shared engine lays out the buffs
+  and anyone else's debuffs as before. Two consequences elsewhere in `XPerl.lua`:
+  `perlDebuffsMine` is now kept whenever this option is on (it feeds the `buffOptMix` that decides
+  whether a re-layout is needed, and the total debuff count can stay put while the split changes),
+  and `XPerl_Unit_BuffPositionsType` clears `hideFrom1`/`hideFrom2` on an empty list, since the
+  lists handed to it are now rebuilt every update. That is also why the empty list is passed as
+  `nil` and why the "nudge the bottom row up" branch tests `buffList2[1]`: the shared layout was
+  written when the only lists it ever saw were the frame's own, whose first button always exists.
+  `LayoutMyDebuffRow` has to follow `conf.flip` and, when `conf.buffs.above` is also on, start above
+  the main stack's last row (`self.prevBuff`) rather than at the frame's top edge — otherwise both
+  rows land on the same point.
 - **Raid frame auras** — buffs and debuffs are independent rows with their own enable, anchor and
   icon size (`rconf.buffs` / `rconf.debuffs` in `XPerl_Raid.lua`). They used to share one row, so
   the options could only ever enable one. Icons wrap to fit the frame, so `perRow` is normally
   absent and derived from the frame width and icon size. `buffs.right`/`buffs.inside` are retired.
+  Both rows are built by collecting first and drawing second (`CollectSortedBuffs`,
+  `CollectDebuffs`), so a filtered aura closes the row up instead of leaving a hole — which is why
+  the real aura index travels on the entry and goes onto the button with `SetID` for the tooltip.
+  The row's name/duration filters live in one place, `AuraFiltered()`: `buffs.hideGroupBuffs`,
+  `buffs.hideAuraBuffs` (anything with no duration — paladin auras, totems, mounts) and
+  `debuffs.hideSated` (spell IDs 57724/57723). `Castable Only`/`Curable Only` are not in there:
+  they are filter strings handed to the client and can only be judged against a real unit.
 - **Test mode** (`/xperl test`, `XPerl_Raid_TestMode` in `XPerl_Raid.lua`) — two sample groups for
   configuring aura layout outside a raid. Secure headers can only be filled by the game from the
   real roster, so this builds its own **non-secure** frames from `XPerl_Raid_FrameTemplate` and
@@ -148,6 +194,18 @@ is still unverified in game. The code touchpoints:
   real members (`SubgroupCounts`), refuses to run in combat (the template inherits
   `SecureActionButtonTemplate`, so `CreateFrame`/`SetHeight` are unsafe under lockdown), and is
   re-driven from `XPerl_Raid_OptionActions` and `XPerl_Raid_Position`.
+  The samples are two per *kind* of aura (`testBuffSamples` / `testDebuffSamples`), by **real spell
+  ID**, so `AuraFiltered` judges them exactly as it judges live auras and the icon is the real
+  icon; the preview is therefore how a user confirms a filter works. Same rule as layout: run
+  samples through the shared code (`AuraFiltered`, `AuraSortCompare`,
+  `XPerl_CooldownFrame_SetTimer`), never a lookalike. `castable`/`curable` on a sample stand in for
+  the client filter, which a made-up aura can't be judged by. `mine` drives which of the
+  My/Their cooldown and countdown settings applies. `PrepareTestAuras` runs once per refresh (the
+  filters are config, identical for every frame) with **one entry pool per row** — a shared pool
+  lets the debuff pass overwrite the buff list. `testTicker` re-arms each icon as its own sample
+  expires (`testTimers`, rebuilt per refresh); samples run from 5s to 25 minutes, so one shared
+  interval would leave the short ones sitting expired — which is the state Countdown Start is judged
+  against.
 - **Scale ceiling** — sliders carry a `maxFactor` (1.5 for party/party pet/raid) multiplied into
   `XPerlDB.maximumScale` in `XPerl_Options/XPerl_FrameOptions.lua`.
 - **Healer dispel highlight** — `PlayerIsHealer()` in `XPerl.lua` decides by talent tab, not class,

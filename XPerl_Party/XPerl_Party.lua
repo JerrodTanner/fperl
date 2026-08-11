@@ -673,13 +673,30 @@ end
 -- frames stood in for your own raid subgroup and the raid frames hid that one group. That
 -- is gone - the raid frames now cover a party themselves (Raid tab, "Show In Party"), so
 -- whether the party frames appear in a raid is once again just "Show In Raid".
+--
+-- "Show In Raid" now covers the raid frames standing in for a party as well. With the Raid tab's
+-- Show In Party on, the raid frames already draw every party member, and the party frames were
+-- left up alongside them - a second set of bars for the same five people, which is exactly what
+-- turning that option on is meant to replace. Tick Show In Raid if you want both at once.
+--
+-- Hiding the header takes the party pet frames with it, since they are children of the party
+-- frames.
 local function CheckRaid()
 	if (InCombatLockdown()) then
 		tinsert(XPerl_OutOfCombatQueue, CheckRaid)
 	else
 		partyAnchor:StopMovingOrSizing()
 
-		if (not pconf or (pconf.inRaid or GetNumRaidMembers() == 0)) then
+		-- XPerl_Raid_CoversParty answers from the raid config, and in this all-in-one build that
+		-- config is still readable when the raid module has been switched off and torn down. So ask
+		-- whether it is running first, or turning the raid frames off would take the party frames
+		-- with them and leave nothing on screen. It is "covers" rather than "is showing" for the
+		-- same reason: a group block turned off draws nobody, and hiding on that would leave people
+		-- with no frame at all.
+		local raidCovers = XPerl_ModuleLoaded("XPerl_RaidFrames") and XPerl_Raid_CoversParty and XPerl_Raid_CoversParty()
+		local covered = raidCovers or GetNumRaidMembers() > 0
+
+		if (not pconf or pconf.inRaid or not covered) then
 			if (not partyHeader:IsShown()) then
 				partyHeader:Show()
 			end
@@ -689,6 +706,21 @@ local function CheckRaid()
 			end
 		end
 	end
+end
+
+-- XPerl_Party_CheckRaid
+-- So a change on the Raid tab can re-ask the question, since what the raid frames are covering is
+-- now part of the answer.
+--
+-- Guarded, because this one is called from outside the module: every other route into CheckRaid is a
+-- handler on frames that teardown has already unregistered, but the options panel is always running,
+-- and showing the header here would put a disabled module's dead party frames back on screen.
+function XPerl_Party_CheckRaid()
+	if (not XPerl_ModuleLoaded("XPerl_Party")) then
+		return
+	end
+
+	CheckRaid()
 end
 
 -- XPerl_Party_TargetUpdateHealth

@@ -2812,6 +2812,15 @@ local function XPerl_Unit_BuffPositionsType(self, list, useSmallStart, buffSizeB
 	local firstOfRow = nil
 	local prevRow, prevRowI = list[1], 1
 	if (not prevRow) then
+		-- An empty list has nothing left to hide either. Returning without clearing this left the
+		-- row cap from a previous pass behind, and a later pass would then hide icons by an index
+		-- that no longer means anything in this list - which My Debuffs Above can hit, because it
+		-- hands the layout a list that is rebuilt every update.
+		if (useSmallStart) then
+			self.hideFrom1 = nil
+		else
+			self.hideFrom2 = nil
+		end
 		return
 	end
 	local above = self.conf.buffs.above
@@ -2974,7 +2983,10 @@ function XPerl_Unit_BuffPositions(self, buffList1, buffList2, size1, size2)
 			XPerl_Unit_BuffPositionsType(self, buffList2, false, size2)
 		end
 
-		if (buffList2) then
+		-- The [1] test is not paranoia: the lists used to be the frame's own buff and debuff lists,
+		-- whose first button always exists, but My Debuffs Above hands over a list built per update
+		-- that is empty when every debuff up is one of yours.
+		if (buffList2 and buffList2[1]) then
 			-- If top row is disabled, then nudge the bottom row into it's place
 			if (buffsFirst) then
 				if (not self.conf.buffs.enable) then
@@ -3169,9 +3181,15 @@ function XPerl_Unit_UpdateBuffs(self, maxBuffs, maxDebuffs, castableOnly, curabl
 					if (debuff and (((mine == 1) and isMine) or ((mine == 2) and not isMine))) then
 						local button = XPerl_GetBuffButton(self, buffIconIndex, 1, true, buffnum)
 						button.filter = filter
+						-- Who cast it, remembered on the icon. My Debuffs Above splits the row by
+						-- this, and the layout runs long after the scan that knew the caster.
+						button.mine = isMine or nil
 						button:SetAlpha(1)
 
 						debuffs = debuffs + 1
+						if (isMine) then
+							debuffsMine = debuffsMine + 1
+						end
 
 						button.icon:SetTexture(debuff)
 						if ((debuffApplications or 0) > 1) then
@@ -3198,7 +3216,6 @@ function XPerl_Unit_UpdateBuffs(self, maxBuffs, maxDebuffs, castableOnly, curabl
 						button:Show()
 
 						if (self.conf.debuffs.big and isMine) then
-							debuffsMine = debuffsMine + 1
 							button.big = true
 							button:SetScale((self.conf.debuffs.size * 2) / 32)
 						else
@@ -3226,7 +3243,11 @@ function XPerl_Unit_UpdateBuffs(self, maxBuffs, maxDebuffs, castableOnly, curabl
 	self.perlBuffs = buffs
 	self.perlDebuffs = debuffs
 
-	if (self.conf and self.conf.buffs.big) then
+	-- These two only feed the option mix that decides whether a re-layout is needed. My Debuffs
+	-- Above has to keep the debuff count as well: it splits the row by caster, so the layout has
+	-- to be redone when a debuff of mine drops and someone else's lands in the same tick, which
+	-- leaves the total unchanged.
+	if (self.conf and (self.conf.buffs.big or self.conf.debuffs.mineAbove)) then
 		self.perlBuffsMine = buffsMine
 		self.perlDebuffsMine = debuffsMine
 	else

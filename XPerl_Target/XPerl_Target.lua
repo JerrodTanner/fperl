@@ -168,9 +168,136 @@ end
 -- Buff Functions --
 --------------------
 
+-- Fork: "My Debuffs Above" (conf.debuffs.mineAbove)
+--
+-- The existing Above option moves buffs and debuffs together, because both rows hang off one
+-- chained stack under (or over) the frame. So there was no way to keep the buff row where it was
+-- and still have the DoTs you applied sitting on top of the frame, which is what you want to see
+-- without looking away from the health bar.
+--
+-- This splits the debuff list by caster: what I applied gets its own row directly above the frame,
+-- anyone else's debuffs stay in the stack exactly where they were. The buttons live in the same
+-- list and keep the same parent either way - only their anchor points differ - so nothing else in
+-- the buff machinery has to know about this.
+local myDebuffs, otherDebuffs = {}, {}
+
+-- SplitMyDebuffs(self)
+-- Returns my debuffs and everyone else's as two lists, or nil when none of mine are up, in which
+-- case the caller uses the single stack as before.
+local function SplitMyDebuffs(self)
+	local list = self.buffFrame.debuff
+	if (not list) then
+		return
+	end
+
+	for i = #myDebuffs, 1, -1 do
+		myDebuffs[i] = nil
+	end
+	for i = #otherDebuffs, 1, -1 do
+		otherDebuffs[i] = nil
+	end
+
+	for i = 1, #list do
+		local button = list[i]
+		if (not button:IsShown()) then
+			break			-- the scan fills from 1 and hides the rest, so this is the end of it
+		end
+
+		if (button.mine) then
+			myDebuffs[#myDebuffs + 1] = button
+		else
+			otherDebuffs[#otherDebuffs + 1] = button
+		end
+	end
+
+	if (#myDebuffs == 0) then
+		return
+	end
+
+	return myDebuffs, otherDebuffs
+end
+
+-- LayoutMyDebuffRow(self, list)
+-- The row above the frame. Rows grow upwards, so a second row never lands on the frame itself.
+-- Icons are anchored edge to edge like the main stack rather than by computed offsets, which keeps
+-- double size icons lined up without doing the scale maths here.
+--
+-- Two things it has to follow rather than assume:
+--   Flip mirrors the main stack, so this row grows from the right edge leftwards with it.
+--   Above puts the main stack over the frame too. Starting from the frame's top edge would then
+--   draw this row straight on top of it, so it starts above the stack's last row instead -
+--   self.prevBuff is where the shared layout leaves that, and it has just run.
+local function LayoutMyDebuffRow(self, list)
+	local size = self.conf.debuffs.size or 20
+	local rowWidth = (self.buffSpacing and self.buffSpacing.rowWidth) or (self:GetWidth() - 4)
+	local maxRows = self.conf.buffs.rows or 99
+	local wrap = self.conf.buffs.wrap
+	local flip = self.conf.flip
+
+	local side = flip and "RIGHT" or "LEFT"
+	local away = flip and "LEFT" or "RIGHT"		-- the way a row runs
+	local indent = flip and -2 or 2
+
+	local base, basePoint = self, "TOP"..side
+	if (self.conf.buffs.above and self.prevBuff) then
+		base, basePoint, indent = self.prevBuff, "TOP"..side, 0
+	end
+
+	local rowStart, prev, used, rows = nil, nil, 0, 1
+
+	for i = 1, #list do
+		local button = list[i]
+		local width = (button.big and (size * 2)) or size
+
+		button:ClearAllPoints()
+
+		if (not prev) then
+			button:SetPoint("BOTTOM"..side, base, basePoint, indent, 1)
+			rowStart, used = button, width + 1
+		elseif (wrap and (used + width) > rowWidth) then
+			rows = rows + 1
+			if (rows > maxRows) then
+				for j = i, #list do
+					list[j]:Hide()
+				end
+				return
+			end
+
+			button:SetPoint("BOTTOM"..side, rowStart, "TOP"..side, 0, 1)
+			rowStart, used = button, width + 1
+		else
+			button:SetPoint("BOTTOM"..side, prev, "BOTTOM"..away, flip and -1 or 1, 0)
+			used = used + width + 1
+		end
+
+		prev = button
+	end
+end
+
 -- XPerl_Targets_BuffPositions
 local function XPerl_Targets_BuffPositions(self)
-	if (self.partyid and UnitCanAttack("player", self.partyid)) then
+	local mine, others
+	if (self.conf.debuffs.mineAbove and self.conf.debuffs.enable) then
+		mine, others = SplitMyDebuffs(self)
+	end
+
+	local hostile = self.partyid and UnitCanAttack("player", self.partyid)
+
+	if (mine) then
+		-- Nothing rather than an empty list: the shared layout is entitled to assume a list it was
+		-- handed has a first button, having only ever been given the frame's own lists before.
+		if (#others == 0) then
+			others = nil
+		end
+
+		if (hostile) then
+			XPerl_Unit_BuffPositions(self, others, self.buffFrame.buff, self.conf.debuffs.size, self.conf.buffs.size)
+		else
+			XPerl_Unit_BuffPositions(self, self.buffFrame.buff, others, self.conf.buffs.size, self.conf.debuffs.size)
+		end
+
+		LayoutMyDebuffRow(self, mine)
+	elseif (hostile) then
 		XPerl_Unit_BuffPositions(self, self.buffFrame.debuff, self.buffFrame.buff, self.conf.debuffs.size, self.conf.buffs.size)
 	else
 		XPerl_Unit_BuffPositions(self, self.buffFrame.buff, self.buffFrame.debuff, self.conf.buffs.size, self.conf.debuffs.size)
