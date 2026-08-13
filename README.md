@@ -191,30 +191,3 @@ aren't covered.
 
 To confirm it works on your server, group cross-faction, stand next to them and run
 `/run print(UnitInRange("party1"))` — **true** means it's working.
-
-## Fixes
-
-- Your own frame going missing from the group after zoning into an instance. The group headers fill
-  themselves from the roster, and the roster the client reports while an instance is still loading
-  can be short of you — after which nothing asked again until somebody joined or left. Raid frames
-  now re-fill a second after any instance load, including logging in inside one.
-- Leftover party bars alongside the raid frames in a party. See **Raid frames in a party** above —
-  the party frames now take themselves off screen while the raid frames are covering the group.
-- The raid pet block's title stayed up after leaving a raid, with nothing in it.
-- Debuffs set to sit above a raid frame no longer overlap the name.
-- The options window is taller, so the Raid tab's settings all fit. Enable/disable per raid group
-  was already there under **Groups** — it was only ever hidden off the bottom of the panel.
-- The three "No sibling found called..." errors when leaving a group. Two options were replaced by
-  the Position dropdowns, but something still went looking for them.
-- Buff and debuff **Position**, **Size**, **Castable Only** and **Curable Only** now grey out when
-  their own row is switched off. All the Raid tab's aura filters also grey out when **Raid Frames**
-  itself is off — they used to come back clickable the next time you opened the tab.
-- Test mode no longer draws a sample frame on top of your own when you're solo with Show When Solo
-  on, and every Raid tab option redraws the samples now — the raid pet ones didn't.
-- Frame scale and position no longer reset after a relog. Opening the options window could
-  overwrite a saved scale with 50%, which moved the frame too.
-- Spells that wouldn't cast and action buttons that went blank. The addon was replacing some
-  Blizzard functions, which tainted Blizzard code paths and got protected actions refused.
-  **Unconfirmed** — if it persists, check for "Interface action failed because of an AddOn"; if
-  instead spells are greyed in your spellbook with no error, that isn't something this addon can
-  cause and it's worth testing with X-Perl disabled.
