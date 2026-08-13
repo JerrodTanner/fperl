@@ -1512,6 +1512,20 @@ local healingTabs = {
 	DRUID	= {[3] = true},				-- Restoration
 	SHAMAN	= {[3] = true},				-- Restoration
 }
+-- BestTalentTab
+-- The tree the player has the most points in, or nil when talents aren't readable - which is the
+-- case for a moment on login. Callers must not cache a nil, or they are stuck with it all session.
+local function BestTalentTab()
+	local bestTab, bestPoints = nil, 0
+	for i = 1, (GetNumTalentTabs() or 0) do
+		local _, _, points = GetTalentTabInfo(i)
+		if ((points or 0) > bestPoints) then
+			bestTab, bestPoints = i, points
+		end
+	end
+	return bestTab
+end
+
 local isHealer						-- nil = not worked out yet, false = worked out, not a healer
 local function PlayerIsHealer()
 	if (isHealer == nil) then
@@ -1519,13 +1533,7 @@ local function PlayerIsHealer()
 		if (not tabs) then
 			isHealer = false			-- Not a healing class, and that won't change
 		else
-			local bestTab, bestPoints = nil, 0
-			for i = 1, (GetNumTalentTabs() or 0) do
-				local _, _, points = GetTalentTabInfo(i)
-				if ((points or 0) > bestPoints) then
-					bestTab, bestPoints = i, points
-				end
-			end
+			local bestTab = BestTalentTab()
 			if (not bestTab) then
 				-- No talents readable yet, which happens for a moment on login. Answer no for
 				-- now but don't remember it, or we'd be stuck with it for the whole session.
@@ -1537,10 +1545,28 @@ local function PlayerIsHealer()
 	return isHealer
 end
 
+-- XPerl_PlayerTalentTab
+-- Which tree the player is specced into, 1-3, or nil while that can't be read. Global because the
+-- raid module needs it to pick the spec's priority buffs. Cached, and dropped on respec by the
+-- frame below along with the healer answer.
+local talentTab
+function XPerl_PlayerTalentTab()
+	if (not talentTab) then
+		talentTab = BestTalentTab()
+	end
+	return talentTab
+end
+
+-- XPerl_PlayerClass
+-- The player's class token, for modules that don't keep their own copy.
+function XPerl_PlayerClass()
+	return playerClass
+end
+
 -- Respeccing or swapping dual spec changes the answer, so drop the cache and re-check on next use
 do
 	local f = CreateFrame("Frame")
-	f:SetScript("OnEvent", function() isHealer = nil end)
+	f:SetScript("OnEvent", function() isHealer, talentTab = nil, nil end)
 	for i, event in pairs({"PLAYER_ENTERING_WORLD", "CHARACTER_POINTS_CHANGED", "PLAYER_TALENT_UPDATE", "ACTIVE_TALENT_GROUP_CHANGED"}) do
 		pcall(f.RegisterEvent, f, event)
 	end

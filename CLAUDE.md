@@ -210,6 +210,27 @@ is still unverified in game. The code touchpoints:
   icons come from `XPerl_PlayerBuffs` and no raid option reaches them. Drums are deliberately absent for that reason: Drums of the Wild
   applies `Gift of the Wild`, which is already a `hideGroupBuffs` entry, so listing the drums would
   hide the druid's group buff whenever the consumables toggle was on and Hide Group Buffs was off.
+- **Spec priority buffs** (`priorityBuffs` / `PriorityBuffNames()` in `XPerl_Raid.lua`) — the procs a
+  spec plays around sort ahead of even the HoTs on the raid buff row, so they are never the icon the
+  8-cap pushed off. The table is keyed by class then talent tab (1-3), with an `all` key for a buff
+  that matters in every spec; **both** the tab list and the `all` list apply. `AuraSortCompare` needs
+  no knowledge of them: HoTs occupy 1..n and everything else 1000, so `PRIORITY_ORDER = 0` leads, and
+  two priority buffs up at once tie and fall through to the existing index tiebreak.
+  The gate is the **viewer's** class and spec, not the unit's — `XPerl_PlayerClass()` and
+  `XPerl_PlayerTalentTab()`, both in `XPerl.lua` beside `PlayerIsHealer` and sharing its
+  `BestTalentTab()` helper and its respec/dual-spec event frame. So a fire mage sees no change, and a
+  frost mage sees Fingers of Frost lead on *any* frame that has it.
+  `PriorityBuffNames()` keeps its own cache keyed on the talent tab rather than registering events:
+  when `XPerl_PlayerTalentTab()` goes stale the tab differs and the set rebuilds. It follows the same
+  rule as `AuraNameLists` — never cache a set when nothing resolved, since that means spell data
+  isn't readable yet — but a spec with **no** entry does cache `emptyNames`, because that answer
+  can't change. Entries may be a spell ID or a literal name string; prefer IDs, which resolve to
+  whatever this server calls the spell.
+  **Stack counts** are set in `UpdateAuraType` from the count `UnitBuff`/`UnitDebuff` returns, which
+  the raid collectors used to discard — the `$parentcount` FontString has always been on
+  `XPerl_BuffTemplate` and every other frame filled it. Shown only above 1, matching `XPerl.lua`.
+  Test mode must clear it too: those buttons come from the same pool as the live ones, so a leftover
+  count would sit on a sample icon.
 - **Test mode** (`/xperl test`, `XPerl_Raid_TestMode` in `XPerl_Raid.lua`) — two sample groups for
   configuring aura layout outside a raid. Secure headers can only be filled by the game from the
   real roster, so this builds its own **non-secure** frames from `XPerl_Raid_FrameTemplate` and

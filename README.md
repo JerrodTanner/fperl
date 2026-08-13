@@ -71,6 +71,35 @@ drop and get reapplied. Now it's **HoTs first, then whatever expires soonest**.
 HoTs hold a fixed order however much time is left on them, so the row doesn't jump around as
 ticks land: Rejuvenation, Regrowth, Wild Growth, Lifebloom, Renew, Riptide.
 
+**Your spec's proc leads the row, ahead of even the HoTs**, so the 8-icon limit can never push it
+off. It only applies to the spec that plays around it — a fire mage sees nothing different.
+
+| Your spec | Leads the row |
+| --- | --- |
+| Balance druid | Eclipse (Lunar), Eclipse (Solar) |
+| Feral druid | Clearcasting (Omen of Clarity) |
+| Frost death knight | Rime, Killing Machine, Unbreakable Armor |
+| Unholy death knight | Ghoul Frenzy, Gargoyle |
+| Arcane mage | Missile Barrage, Clearcasting |
+| Fire mage | Hot Streak |
+| Frost mage | Fingers of Frost |
+| Survival hunter | Lock and Load |
+| Arms warrior | Sudden Death |
+| Protection warrior | Sword and Board |
+| Retribution paladin | The Art of War |
+| Enhancement shaman | Maelstrom Weapon |
+| Demonology warlock | Molten Core, Decimation |
+| Rogue, any spec | Slice and Dice |
+
+Respeccing switches it over on its own. **Castable Only has to be off** for these to show at all —
+it limits the row to buffs you can cast on someone, and a proc isn't one.
+
+## Stack counts on raid buff and debuff icons
+
+Raid icons now show the stack number in the corner the way the player and target frames always
+have, so a five stack Maelstrom Weapon or Sunder Armor no longer looks the same as one. Shown only
+above one stack. Both rows have a stacking sample in `/xperl test`.
+
 **Raid tab → Hide Group Buffs** leaves the long group buffs out of the row — Mark of the Wild,
 Fortitude, Spirit, Shadow Protection, Arcane Intellect and the Blessings, single and group version
 of each. Worth ticking: only 8 icons fit per frame, and on a fully buffed target those alone can
@@ -134,12 +163,14 @@ filter touches, so each one visibly changes the row on its own.
 | Devotion Aura | **Hide Auras** (no duration) |
 | Flask of Endless Rage — *someone else's* | **Hide Consumables** |
 | Inner Fire — *someone else's* | **Castable Only** |
+| Maelstrom Weapon *(5 stacks)* | — (previews the stack number) |
 
 | Debuff sample | Removed by |
 | --- | --- |
 | Sated | **Hide Sated** |
 | Shadow Word: Pain *(yours, Magic)* | — (this is what **Curable Only** keeps) |
 | Deep Wounds | **Curable Only** (nothing removes it) |
+| Sunder Armor *(5 stacks)* | — (previews the stack number) |
 
 Sweeps and countdown numbers are real, run through the same timer the live rows use, and each
 sample knows whether *you* cast it — so **My Cooldown / Their Cooldown**, **My Countdown / Their

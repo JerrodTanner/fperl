@@ -980,8 +980,108 @@ local consumableNameParts = {
 	"Scourgebane",		-- Scourgebane Draught, Scourgebane Infusion, and any other variant
 }
 
-local hotOrder, groupBuffNames, satedNames, consumableNames
+-- Shared by every name set below, and declared up here because PriorityBuffNames returns it before
+-- AuraNameLists is defined. Never written to.
 local emptyNames = {}
+
+-- Priority buffs: the procs and self buffs a spec plays around, sorted ahead of even the HoTs so
+-- they are never the icon that got pushed off the row. Keyed by class and then by talent tab, with
+-- "all" for a buff that matters whatever the spec. Tabs are 1-3 in the game's own order.
+--
+-- The gate is on *you*, not on the unit the frame belongs to: a frost mage sees Fingers of Frost
+-- lead, and a resto druid sees no change at all. That also means another player of your spec gets
+-- the same treatment on their frame, which is what you want if you are watching for it.
+--
+-- Entries may be a spell ID or a literal buff name. IDs are preferred - they resolve to whatever
+-- this server actually calls the spell, which matters for the ones renamed between expansions.
+local priorityBuffs = {
+	DRUID = {
+		[1] = {48518, 48517},				-- Balance: Eclipse (Lunar), Eclipse (Solar)
+		[2] = {16870, 16864},				-- Feral: Clearcasting, which is Omen of Clarity's proc.
+								-- Both listed because the talent is passive here and
+								-- the aura is the named one, but servers differ.
+	},
+	DEATHKNIGHT = {
+		[2] = {59052, 51124, 51271},			-- Frost: Freezing Fog (the Rime proc), Killing
+								-- Machine, Unbreakable Armor
+		[3] = {63560, 49206},				-- Unholy: Ghoul Frenzy, Summon Gargoyle
+	},
+	MAGE = {
+		[1] = {44401, 12536},				-- Arcane: Missile Barrage, Clearcasting
+		[2] = {48108},					-- Fire: Hot Streak
+		[3] = {44544},					-- Frost: Fingers of Frost
+	},
+	ROGUE = {
+		all = {5171, 6774},				-- Slice and Dice, both ranks - one name
+	},
+	HUNTER = {
+		[3] = {56453},					-- Survival: Lock and Load
+	},
+	WARRIOR = {
+		[1] = {52437},					-- Arms: Sudden Death
+		[3] = {50227},					-- Protection: Sword and Board
+	},
+	WARLOCK = {
+		[2] = {71165, 63167},				-- Demonology: Molten Core, Decimation
+	},
+	SHAMAN = {
+		[2] = {53817},					-- Enhancement: Maelstrom Weapon
+	},
+	PALADIN = {
+		[3] = {59578, 53489},				-- Retribution: The Art of War, both ranks
+	},
+}
+
+-- PriorityBuffNames()
+-- The set of buff names that lead the row for the spec the player is currently in, empty for a spec
+-- with nothing listed. Rebuilt when the talent tab changes rather than on an event of its own, so a
+-- respec or a dual spec swap is picked up by XPerl_PlayerTalentTab going stale underneath it.
+local priorityNames, priorityTab
+local function PriorityBuffNames()
+	local tab = XPerl_PlayerTalentTab()
+	if (not tab) then
+		return emptyNames				-- Talents unreadable, as on login. Don't cache it.
+	end
+
+	local class = XPerl_PlayerClass()
+	if (not class) then
+		return emptyNames				-- Not read yet. Caching now would stick for the session.
+	end
+
+	if (priorityTab ~= tab) then
+		local entry = priorityBuffs[class]
+		-- Both lists, not one or the other: a class with an "all" buff and a per-spec one wants
+		-- both, and picking only the more specific would drop the other without a word.
+		local specIDs = entry and entry[tab]
+		local allIDs = entry and entry.all
+
+		if (not specIDs and not allIDs) then
+			priorityNames, priorityTab = emptyNames, tab	-- Nothing for this spec, and that's final
+		else
+			local set, resolved = {}, 0
+			local function AddIDs(ids)
+				for i = 1, (ids and #ids or 0) do
+					local id = ids[i]
+					local name = (type(id) == "string") and id or GetSpellInfo(id)
+					if (name) then
+						set[name] = true
+						resolved = resolved + 1
+					end
+				end
+			end
+			AddIDs(specIDs)
+			AddIDs(allIDs)
+			if (resolved == 0) then
+				return emptyNames			-- Spell data not readable yet, so don't cache
+			end
+			priorityNames, priorityTab = set, tab
+		end
+	end
+
+	return priorityNames
+end
+
+local hotOrder, groupBuffNames, satedNames, consumableNames
 local function AuraNameLists()
 	if (not hotOrder) then
 		local hots, group, sated, consumable = {}, {}, {}, {}
@@ -1081,10 +1181,16 @@ local NO_EXPIRY = 1e9
 -- Reused between calls, entries included, so a busy raid isn't allocating 25 tables a tick
 local auraPool, auraList = {}, {}
 
+-- Ordering rank, low first. HoTs take 1 to #hotSpellIDs and everything else 1000, which leaves 0
+-- free for the spec's priority buffs to lead the row without this compare needing to know about
+-- them. Two of them up at once (Rime and Killing Machine, say) tie here and fall through to the
+-- index tiebreak below, so they hold a stable order rather than swapping around.
+local PRIORITY_ORDER = 0
+
 local function AuraSortCompare(x, y)
 	local xh, yh = x.hot or 1000, y.hot or 1000
 	if (xh ~= yh) then
-		return xh < yh			-- HoTs first, in their fixed order
+		return xh < yh			-- priority buffs first, then HoTs in their fixed order
 	end
 	if (xh < 1000) then
 		return x.index < y.index	-- same HoT on twice, keep it stable
@@ -1101,13 +1207,17 @@ local function CollectSortedBuffs(partyid, aconf, filter)
 	local hots = AuraNameLists()
 	local now = GetTime()
 
+	-- Hoisted: this depends on the player's own spec, so it is the same for every aura on every
+	-- frame in this pass.
+	local priority = PriorityBuffNames()
+
 	for i = #auraList, 1, -1 do
 		auraList[i] = nil
 	end
 
 	local n = 0
 	for index = 1, AURA_SCAN_MAX do
-		local name, _, tex, _, _, duration, endTime, caster = XPerl_UnitBuff(partyid, index, filter, true)
+		local name, _, tex, stacks, _, duration, endTime, caster = XPerl_UnitBuff(partyid, index, filter, true)
 		if (not name) then
 			break
 		end
@@ -1126,7 +1236,8 @@ local function CollectSortedBuffs(partyid, aconf, filter)
 			e.duration = duration
 			e.endTime = endTime
 			e.caster = caster
-			e.hot = hots[name]
+			e.stacks = stacks
+			e.hot = priority[name] and PRIORITY_ORDER or hots[name]
 			e.left = (duration and duration > 0 and endTime) and (endTime - now) or NO_EXPIRY
 		end
 	end
@@ -1150,7 +1261,7 @@ local function CollectDebuffs(partyid, aconf, filter)
 
 	local n = 0
 	for index = 1, AURA_SCAN_MAX do
-		local name, _, tex, _, _, duration, endTime, caster = XPerl_UnitDebuff(partyid, index, filter, true)
+		local name, _, tex, stacks, _, duration, endTime, caster = XPerl_UnitDebuff(partyid, index, filter, true)
 		if (not name) then
 			break
 		end
@@ -1169,6 +1280,7 @@ local function CollectDebuffs(partyid, aconf, filter)
 			e.duration = duration
 			e.endTime = endTime
 			e.caster = caster
+			e.stacks = stacks
 		end
 	end
 
@@ -1189,10 +1301,10 @@ local function UpdateAuraType(self, auraType, aconf, filter)
 	local collected = (auraType == "b") and CollectSortedBuffs(partyid, aconf, filter) or CollectDebuffs(partyid, aconf, filter)
 
 	for slot = 1, maxIcons do
-		local index, tex, duration, endTime, caster
+		local index, tex, duration, endTime, caster, stacks
 		local e = (slot <= collected) and auraList[slot]
 		if (e) then
-			index, tex, duration, endTime, caster = e.index, e.tex, e.duration, e.endTime, e.caster
+			index, tex, duration, endTime, caster, stacks = e.index, e.tex, e.duration, e.endTime, e.caster, e.stacks
 		end
 
 		local button = GetAuraButton(container, slot, tex, auraType)	-- 'tex' flags whether to create icon
@@ -1204,6 +1316,19 @@ local function UpdateAuraType(self, auraType, aconf, filter)
 				-- The tooltip looks the aura up by the button's ID, so this has to carry the
 				-- real aura index rather than the position the icon happens to sit in.
 				button:SetID(index)
+
+				-- Stack count. The template has carried this FontString all along and the other
+				-- frames have always filled it, but the raid rows discarded UnitBuff's count and
+				-- left it blank - so a five stack Maelstrom Weapon looked exactly like one stack.
+				-- Same test the player and target frames use: only shown above 1.
+				if (button.count) then
+					if (stacks and stacks > 1) then
+						button.count:SetText(stacks)
+						button.count:Show()
+					else
+						button.count:Hide()
+					end
+				end
 
 				-- Same options as every other frame. SetTimer works out sweep and text from the
 				-- per audience settings, so nothing is decided here beyond having a duration.
@@ -1397,6 +1522,11 @@ local testBuffSamples = {
 	-- to be judged against.
 	{id = 53760,	duration = 3600, left = 42},							-- Flask of Endless Rage
 
+	-- Here to preview the stack count in the icon corner, which needs a sample that stacks. Also the
+	-- one sample that is a priority buff, so an enhancement shaman sees it lead the row and everyone
+	-- else sees it sort on time remaining like anything else.
+	{id = 53817,	duration = 30,	left = 21,	stacks = 5,	mine = true,	castable = true},	-- Maelstrom Weapon
+
 	-- What Castable Only takes out: someone else's own buff, which you cannot cast. This has to be
 	-- a sample no other filter touches. When the consumables above were doing this job too,
 	-- ticking Hide Consumables left Castable Only with nothing to remove and the preview stopped
@@ -1416,6 +1546,9 @@ local testDebuffSamples = {
 	-- What Curable Only takes out: a bleed nothing removes. Short, so it also carries the Their
 	-- Countdown number for the debuff row.
 	{id = 12162,	duration = 12,	left = 9},							-- Deep Wounds
+
+	-- The debuff row's stack count preview, for the same reason as Maelstrom Weapon on the buff row.
+	{id = 7386,	duration = 30,	left = 26,	stacks = 5},				-- Sunder Armor
 }
 
 -- TestSampleInfo(sample)
@@ -1497,6 +1630,7 @@ local function PrepareTestAuras(auraType, aconf, samples, out)
 	local hots = AuraNameLists()
 	local maxIcons = aconf.max or 8
 	local pool = testPools[auraType]
+	local priority = PriorityBuffNames()
 
 	-- The one filter that can't be asked of a made-up aura, so each sample declares the answer
 	local clientFilter = (auraType == "b") and (aconf.castable == 1) or (auraType == "d") and (aconf.curable == 1)
@@ -1525,7 +1659,7 @@ local function PrepareTestAuras(auraType, aconf, samples, out)
 				e.sample = sample
 				e.tex = tex
 				e.index = i
-				e.hot = hots[name]
+				e.hot = priority[name] and PRIORITY_ORDER or hots[name]
 				e.left = sample.left or NO_EXPIRY
 			end
 		end
@@ -1595,6 +1729,17 @@ local function TestAuras(frame, auraType, list, aconf)
 
 		if (button) then
 			button.icon:SetTexture(e.tex)
+
+			-- Samples don't stack, and these buttons are pooled with the live ones, so a count
+			-- left over from a real aura has to be cleared rather than left sitting on the icon.
+			if (button.count) then
+				if (sample.stacks and sample.stacks > 1) then
+					button.count:SetText(sample.stacks)
+					button.count:Show()
+				else
+					button.count:Hide()
+				end
+			end
 
 			if (button.cooldown) then
 				if (sample.duration and sample.left) then
