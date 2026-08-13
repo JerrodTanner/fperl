@@ -90,8 +90,10 @@ Check it with `/xperl test` — the buff samples include a flask and a **Well Fe
 you tick the box.
 
 It works from a spell list, so a flask or elixir the list doesn't know still shows — say which and
-it's a one-line fix. Scroll buffs are named after the stat, plain **Agility** or **Stamina**, so a
-server buff by one of those exact names would be hidden too; say so and those six entries come out.
+it's a one-line fix. Anything with **Scourgebane** in the name is matched by name instead, so both
+the Draught and the Infusion go whatever their buffs turn out to be called. Scroll buffs are named
+after the stat, plain **Agility** or **Stamina**, so a server buff by one of those exact names would
+be hidden too; say so and those six entries come out.
 
 **Hide Sated** on the debuff row leaves out Bloodlust and Heroism's cooldown debuff — **Sated** and
 **Exhaustion**, whichever version the shaman who cast it had. It sits there for ten minutes, can't
@@ -120,22 +122,24 @@ without being in a raid. Run it again to turn it off.
 Leave the options window open while it's on — Position, Size, scale, spacing, anchor, mana bar and
 percentages all update the samples live.
 
-**The samples are two of each kind of aura, and they're judged by your own filters.** So the preview
-answers "is this option actually doing what I want?", not just "where does the row wrap?". Tick
-**Hide Sated** and the two Sated icons go, because the option removed them.
+**There's one sample per filter, and they're judged by your own settings.** So the preview answers
+"is this option actually doing what I want?", not just "where does the row wrap?". Tick **Hide
+Sated** and the Sated icon goes, because the option removed it. Every filter has a sample no other
+filter touches, so each one visibly changes the row on its own.
 
-| Buff samples | Removed by |
+| Buff sample | Removed by |
 | --- | --- |
-| Rejuvenation, Renew — *yours* | — (first in the row, being HoTs) |
-| Mark of the Wild, Power Word: Fortitude | **Hide Group Buffs** |
-| Devotion Aura, Trueshot Aura | **Hide Auras** (no duration) |
-| Flask of Endless Rage, Well Fed — *someone else's* | **Hide Consumables**, and **Castable Only** |
+| Rejuvenation — *yours* | — (first in the row, being a HoT) |
+| Mark of the Wild | **Hide Group Buffs** |
+| Devotion Aura | **Hide Auras** (no duration) |
+| Flask of Endless Rage — *someone else's* | **Hide Consumables** |
+| Inner Fire — *someone else's* | **Castable Only** |
 
-| Debuff samples | Removed by |
+| Debuff sample | Removed by |
 | --- | --- |
-| Sated, Exhaustion | **Hide Sated** |
-| Shadow Word: Pain *(yours, Magic)*, Curse of Agony *(Curse)* | — (these are what **Curable Only** keeps) |
-| Deep Wounds, Mark of the Fallen Champion *(boss)* | **Curable Only** (nothing removes them) |
+| Sated | **Hide Sated** |
+| Shadow Word: Pain *(yours, Magic)* | — (this is what **Curable Only** keeps) |
+| Deep Wounds | **Curable Only** (nothing removes it) |
 
 Sweeps and countdown numbers are real, run through the same timer the live rows use, and each
 sample knows whether *you* cast it — so **My Cooldown / Their Cooldown**, **My Countdown / Their
@@ -143,7 +147,8 @@ Countdown** and **Countdown Start** all preview as configured. Remaining times d
 straddle the Countdown Start threshold, so some numbers show and some don't. Each icon re-arms on
 its own sample's cycle as it runs out, so the row never goes dead while you're looking at it.
 
-Buffs preview in the real display order too: HoTs first, then soonest to expire.
+Buffs preview in the real display order too: HoTs first, then soonest to expire. The fixed order
+*among* HoTs needs two of them on one frame, so that part only shows on a live row.
 
 - Sample frames can't be clicked or targeted, and don't simulate aggro, range fading or incoming
   heals. Layout, sizes, colours, wrapping, order, filters and timers are accurate.

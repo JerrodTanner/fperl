@@ -1698,9 +1698,12 @@
 		<HighlightTexture file="Interface\QuestFrame\UI-QuestTitleHighlight" alphaMode="ADD"/>
 	</Button>
 
+	<!-- 30px taller than it was, for the Raid tab's third buff filter row. The tab area is sized
+	     off this frame, and the Raid tab is the tallest of them, so a row added there is what
+	     decides this number. Keep this and XPerl_Options below the same size. -->
 	<Frame name="XPerl_OptionsAnchor" parent="UIParent" movable="true" resizable="true">
 		<Size>
-			<AbsDimension x="650" y="640"/>
+			<AbsDimension x="650" y="670"/>
 		</Size>
 		<Anchors>
 			<Anchor point="CENTER"/>
@@ -1827,8 +1830,9 @@
 				end
 			</OnMouseUp>
 		</Scripts>
+		<!-- Matches XPerl_OptionsAnchor; see the note there -->
 		<Size>
-			<AbsDimension x="650" y="640"/>
+			<AbsDimension x="650" y="670"/>
 		</Size>
 		<Anchors>
 			<Anchor point="TOPLEFT"/>
@@ -10424,9 +10428,15 @@
 								-- this one runs after Enable's (frames validate in creation order)
 								-- and used to re-enable them from the buff row's state by itself.
 								-- Hence "Enable" as the second condition on each.
+								-- BuffAnchor has to be here for the mirror of the same reason. On
+								-- the first show of the tab in a session Enable validates before
+								-- this frame has been SetChecked, so it reads the buff row as off
+								-- and greys the Position dropdown; without a copy here nothing
+								-- turns it back on until the tab is closed and reopened.
 								self.Validate = function()
 									XPerl_Options_EnableSibling(self, "Castable", "Enable")
 									XPerl_Options_EnableSibling(self, "BuffSize", "Enable")
+									XPerl_Options_EnableSibling(self, "BuffAnchor", "Enable")
 									XPerl_Options_EnableSibling(self, "HideGroupBuffs", "Enable")
 									XPerl_Options_EnableSibling(self, "HideAuraBuffs", "Enable")
 									XPerl_Options_EnableSibling(self, "HideConsumables", "Enable")
@@ -10457,6 +10467,7 @@
 								self.Validate = function()
 									XPerl_Options_EnableSibling(self, "Curable", "Enable")
 									XPerl_Options_EnableSibling(self, "DebuffSize", "Enable")
+									XPerl_Options_EnableSibling(self, "DebuffAnchor", "Enable")
 									XPerl_Options_EnableSibling(self, "HideSated", "Enable")
 								end
 								self.configClick = function()
@@ -10467,21 +10478,17 @@
 						</Scripts>
 					</CheckButton>
 
-					<!-- Moved up beside Raid Buffs, the row it filters, from a row of its own below
-					     Raid Debuffs. That frees one row for Hide Consumables without making this
-					     column any taller, and it reads better besides: the buff row's enable and
-					     the buff row's client side filter on one line. -->
+					<!-- Stays on a row of its own. It was briefly paired beside Raid Buffs to free a
+					     row for Hide Consumables, but the Groups panel starts at the tab's centre
+					     and that left only ~84px for this label: enUS fits, deDE and frFR run well
+					     under the Groups box, hit rect included. Every other pair on this tab gets
+					     away with it because the fork's own strings are enUS only; both labels on
+					     that row were translated. The window is 30px taller instead. -->
 					<CheckButton name="$parent_Castable" inherits="XPerlCheckButtonTemplate">
 						<Size><AbsDimension x="26" y="26"/></Size>
 						<Anchors>
-							<!-- y is -2 because Raid Buffs takes the template's 30px while this is
-							     26, so a flush top edge would sit the two labels 2px apart. x is
-							     124 rather than the 110 the other pairs on this tab use: those
-							     pair two of the fork's own enUS-only strings, while both labels
-							     here are translated, and 110 puts this box under a deDE or esES
-							     "Raid Buffs". 124 clears the longest of them. -->
-							<Anchor point="TOPLEFT" relativeTo="$parent_Buffs" relativePoint="TOPLEFT">
-								<Offset><AbsDimension x="124" y="-2"/></Offset>
+							<Anchor point="TOP" relativeTo="$parent_Debuffs" relativePoint="BOTTOMRIGHT">
+								<Offset><AbsDimension x="0" y="6"/></Offset>
 							</Anchor>
 						</Anchors>
 						<Scripts>
@@ -10495,18 +10502,12 @@
 					</CheckButton>
 
 					<!-- Debuffs get their own filter now that they no longer share the buff
-					     row, and with it the buff row's castable setting.
-					     Hung off Raid Debuffs rather than off Castable Only, which used to sit on
-					     the row between the two and has moved up. Same indent as before: Castable
-					     Only's old anchor put its 26px centre on Raid Debuffs' bottom right, and
-					     Raid Debuffs takes the template's 30px, so that was left + 30 - 13 = 17.
-					     Everything below here hangs off this frame, so 13 would have shifted the
-					     whole lower half of the tab 4px left. -->
+					     row, and with it the buff row's castable setting. -->
 					<CheckButton name="$parent_Curable" inherits="XPerlCheckButtonTemplate">
 						<Size><AbsDimension x="26" y="26"/></Size>
 						<Anchors>
-							<Anchor point="TOPLEFT" relativeTo="$parent_Debuffs" relativePoint="BOTTOMLEFT">
-								<Offset><AbsDimension x="17" y="6"/></Offset>
+							<Anchor point="TOPLEFT" relativeTo="$parent_Castable" relativePoint="BOTTOMLEFT">
+								<Offset><AbsDimension x="0" y="6"/></Offset>
 							</Anchor>
 						</Anchors>
 						<Scripts>
@@ -10575,12 +10576,11 @@
 						</Scripts>
 					</CheckButton>
 
-					<!-- The third buff row filter. It gets a row of its own rather than a third
+					<!-- The third buff row filter, on a row of its own rather than as a third
 					     column: the Groups panel is anchored to the tab's top centre, so this
-					     column runs out of width at about 238, and Hide Auras already ends there.
-					     The row it uses is the one freed by moving Castable Only up beside Raid
-					     Buffs, so nothing below here moves - everything from the anchor dropdowns
-					     down hangs off one chain and would have shifted with it. -->
+					     column runs out of width at about 238 and Hide Auras already ends there.
+					     Everything from the anchor dropdowns down hangs off one chain, so this row
+					     pushes all of it down 20px - which is what the taller window is for. -->
 					<CheckButton name="$parent_HideConsumables" inherits="XPerlCheckButtonTemplate">
 						<Size><AbsDimension x="26" y="26"/></Size>
 						<Anchors>

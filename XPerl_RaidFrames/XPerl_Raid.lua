@@ -20,6 +20,7 @@ local new, del, copy = XPerl_GetReusableTable, XPerl_FreeTable, XPerl_CopyTable
 
 local format = format
 local strsub = strsub
+local strfind = strfind
 local GetNumRaidMembers = GetNumRaidMembers
 local UnitHealth = UnitHealth
 local UnitHealthMax = UnitHealthMax
@@ -955,6 +956,28 @@ local consumableSpellIDs = {
 
 	-- And the odd one out
 	28714,		-- Flame Cap
+
+	-- Rogue weapon poisons are deliberately not here, and can't be. They are temporary weapon
+	-- enchants, not auras: UnitBuff never returns one, and GetWeaponEnchantInfo only reports your
+	-- own weapons, so a raid frame has no way to know another player has a poison applied. The two
+	-- icons on your own player frame come from XPerl_PlayerBuffs and this option doesn't reach them.
+	-- Sharpening stones, oils and shields are the same story. Adding IDs for any of them would be
+	-- dead weight.
+}
+
+-- Consumables matched on part of the name instead of a spell ID, for the ones whose ID can't be
+-- pinned down - anything this server added itself, or a buff whose name doesn't match the item that
+-- applied it. Compared with a plain (non-pattern) find, so punctuation in a fragment is literal.
+--
+-- Kept as its own list rather than mixed in above, because a literal string always "resolves" and
+-- so must not count towards AuraNameLists' resolved counter - that counter is what stops an empty
+-- set being cached before the client can read spell data.
+--
+-- The trade is that these are locale specific and typo sensitive, which is fine for the items they
+-- exist for. Keep the list short: it is walked per buff when the option is on, and one strfind per
+-- icon is nothing, but a long list would want memoising first.
+local consumableNameParts = {
+	"Scourgebane",		-- Scourgebane Draught, Scourgebane Infusion, and any other variant
 }
 
 local hotOrder, groupBuffNames, satedNames, consumableNames
@@ -1025,9 +1048,17 @@ local function AuraFiltered(name, duration, aconf, auraType)
 
 	-- Flasks, elixirs, food, scrolls, potions and Flame Cap. Kept apart from the group buffs
 	-- because the two answer different questions - a raid leader checking who is flasked wants
-	-- these and not the class buffs.
-	if (aconf.hideConsumables and consumable[name]) then
-		return true
+	-- these and not the class buffs. The name fragments are only walked when the exact set misses,
+	-- so the common case stays a single table lookup.
+	if (aconf.hideConsumables) then
+		if (consumable[name]) then
+			return true
+		end
+		for i = 1, #consumableNameParts do
+			if (strfind(name, consumableNameParts[i], 1, true)) then
+				return true
+			end
+		end
 	end
 
 	-- Aura buffs are the permanent proximity ones - paladin auras, totem buffs, Blood Pact,
@@ -1315,10 +1346,14 @@ end
 -- click-cast on, and anything needing a live unit isn't simulated (aggro, range fading,
 -- incoming heals, res and AFK flags). That's the trade for previewing without a raid.
 --
--- The samples are two of each *kind* of aura, and they are judged by the row's own filters through
--- the same AuraFiltered the live rows use. So the preview is also the answer to "is Hide Sated
--- actually doing anything?" - tick it and the two Sated samples go, because the option removed
--- them, not because the preview was told to fake it.
+-- There is exactly one sample per option that can filter the row, and they are judged by the row's
+-- own filters through the same AuraFiltered the live rows use. So the preview is also the answer to
+-- "is Hide Sated actually doing anything?" - tick it and the Sated sample goes, because the option
+-- removed it, not because the preview was told to fake it.
+--
+-- One per option, rather than two, because the row's icon cap is a fixed 8 with no slider: a pair
+-- per option left no room for a new filter's sample without silently evicting another option's, and
+-- the trim in PrepareTestAuras drops what a real row would drop. A new filter adds one sample here.
 ----------------------------------------------------------------------
 
 local testMode
@@ -1335,7 +1370,7 @@ local TestGroups = {}
 --                  straddle a typical Countdown Start, so some numbers are showing and some
 --                  aren't - which is the thing that setting is hard to judge blind.
 --   mine           picks My Cooldown/My Countdown over Their Cooldown/Their Countdown, the same
---                  way a real aura's caster does. Every row has some of each.
+--                  way a real aura's caster does. Every row keeps at least one of each.
 --   castable       whether Castable Only would keep it. curable, likewise, for Curable Only.
 --                  Those two are handed to the client as a filter string, so they cannot be
 --                  judged against a made-up aura and are applied from this flag instead.
@@ -1344,44 +1379,43 @@ local TestGroups = {}
 ----------------------------------------------------------------------
 
 local testBuffSamples = {
-	-- HoTs of mine. Also shows the HoT-first ordering, and My Cooldown/My Countdown.
+	-- A HoT of mine: first in the row, and the My Cooldown/My Countdown case. One HoT shows that
+	-- HoTs lead, but not the fixed order among them - that needs two, and a second one is not worth
+	-- an icon slot here. The live row is where you'd see it anyway.
 	{id = 774,	duration = 15,	left = 11,	mine = true,	castable = true},	-- Rejuvenation
-	{id = 139,	duration = 18,	left = 5,	mine = true,	castable = true},	-- Renew
 
-	-- Class buffs: what Hide Group Buffs takes out. Long, so no countdown number at 99 or less.
+	-- What Hide Group Buffs takes out. Long, so no countdown number at a Start of 99 or less.
 	{id = 1126,	duration = 3600, left = 2400,			castable = true},	-- Mark of the Wild
-	{id = 1243,	duration = 3600, left = 1500,			castable = true},	-- Power Word: Fortitude
 
-	-- Auras: no duration, no sweep, no number. What Hide Auras takes out.
+	-- What Hide Auras takes out: no duration, so no sweep and no number. Nobody can really cast
+	-- this on a raid member, but it is flagged castable so that Hide Auras still has something to
+	-- remove while Castable Only is on. Inner Fire below is the honest not-castable sample.
 	{id = 465,							castable = true},	-- Devotion Aura
-	{id = 19506,							castable = true},	-- Trueshot Aura
 
-	-- Consumables: what Hide Consumables takes out. These also stand in for the buffs you can't
-	-- cast, which is what Castable Only takes out - nobody casts a flask or a meal on someone
-	-- else - and being someone else's they are what Their Cooldown and Their Countdown apply to.
-	-- One is nearly out so that a countdown number is showing on a buff that isn't mine, which is
-	-- the state Their Countdown Start has to be judged against.
-	--
-	-- They took the place of a Barkskin/Inner Fire pair that covered only the Castable Only case.
-	-- The buff row's cap is a fixed 8 and there were already 8 sample kinds, so adding a ninth and
-	-- tenth would have pushed the two aura samples off the row - the cap here drops what the real
-	-- row would drop - and left Hide Auras looking like it did nothing.
+	-- What Hide Consumables takes out, and a second Their Cooldown/Their Countdown case. Nearly
+	-- out, so a number is showing on a buff that isn't mine - the state Their Countdown Start has
+	-- to be judged against.
 	{id = 53760,	duration = 3600, left = 42},							-- Flask of Endless Rage
-	{id = 57426,	duration = 3600, left = 1620},							-- Well Fed
+
+	-- What Castable Only takes out: someone else's own buff, which you cannot cast. This has to be
+	-- a sample no other filter touches. When the consumables above were doing this job too,
+	-- ticking Hide Consumables left Castable Only with nothing to remove and the preview stopped
+	-- answering for it - the exact "did that option do anything?" failure the samples exist for.
+	{id = 588,	duration = 1800, left = 900},							-- Inner Fire
 }
 
 local testDebuffSamples = {
-	-- Bloodlust and Heroism's cooldown debuff: what Hide Sated takes out.
+	-- What Hide Sated takes out. Not curable, which is true of it, so Curable Only removes it as
+	-- well - that is what would really happen, and it means Hide Sated is only judgeable with
+	-- Curable Only off. Both faction versions exist live; one is enough to preview the filter.
 	{id = 57724,	duration = 600,	left = 420},							-- Sated
-	{id = 57723,	duration = 600,	left = 240},							-- Exhaustion
 
-	-- Dispellable, one Magic and one Curse: what Curable Only keeps. The first is mine.
+	-- What Curable Only keeps, and the My Cooldown/My Countdown case for this row.
 	{id = 589,	duration = 18,	left = 12,	mine = true,	curable = true},	-- Shadow Word: Pain
-	{id = 980,	duration = 24,	left = 7,			curable = true},	-- Curse of Agony
 
-	-- Nothing removes these: a bleed and a raid boss debuff. What Curable Only takes out.
+	-- What Curable Only takes out: a bleed nothing removes. Short, so it also carries the Their
+	-- Countdown number for the debuff row.
 	{id = 12162,	duration = 12,	left = 9},							-- Deep Wounds
-	{id = 72293,	duration = 120,	left = 105},							-- Mark of the Fallen Champion
 }
 
 -- TestSampleInfo(sample)

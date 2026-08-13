@@ -196,7 +196,18 @@ is still unverified in game. The code touchpoints:
   resolve hides an unrelated buff. Comment each entry with the **buff** name it resolves to, not the
   item's: the scroll block is the exception and is annotated as such, because a scroll's buff is a
   bare stat word (`Agility`, `Armor`) and so is the one group that can over-match even with correct
-  IDs — a server-side buff by one of those names would go with it. Drums are deliberately absent for that reason: Drums of the Wild
+  IDs — a server-side buff by one of those names would go with it.
+  `consumableNameParts` is the escape hatch for consumables whose spell ID can't be pinned down —
+  server-added items, or a buff named differently from the item that applied it (`Scourgebane` covers
+  both Scourgebane items and any variant). It is a **separate list on purpose**: a literal string
+  always "resolves", so folding it into `consumableSpellIDs` would break the `resolved` counter that
+  stops an empty set being cached before spell data is readable. Fragments are compared with
+  `strfind(name, part, 1, true)` — plain, not a pattern — and only when the exact-name lookup misses.
+  Keep the list short; it is walked per icon while the option is on.
+  **Weapon enchants can never be filtered here.** Rogue poisons, sharpening stones and oils are temp
+  enchants, not auras: `UnitBuff` never returns them, and `GetWeaponEnchantInfo` reports only your
+  own weapons, so a raid frame cannot know another player has one. The player frame's two temp-enchant
+  icons come from `XPerl_PlayerBuffs` and no raid option reaches them. Drums are deliberately absent for that reason: Drums of the Wild
   applies `Gift of the Wild`, which is already a `hideGroupBuffs` entry, so listing the drums would
   hide the druid's group buff whenever the consumables toggle was on and Hide Group Buffs was off.
 - **Test mode** (`/xperl test`, `XPerl_Raid_TestMode` in `XPerl_Raid.lua`) — two sample groups for
@@ -207,14 +218,15 @@ is still unverified in game. The code touchpoints:
   real members (`SubgroupCounts`), refuses to run in combat (the template inherits
   `SecureActionButtonTemplate`, so `CreateFrame`/`SetHeight` are unsafe under lockdown), and is
   re-driven from `XPerl_Raid_OptionActions` and `XPerl_Raid_Position`.
-  The samples are two per *kind* of aura (`testBuffSamples` / `testDebuffSamples`), by **real spell
-  ID**, so `AuraFiltered` judges them exactly as it judges live auras and the icon is the real
-  icon; the preview is therefore how a user confirms a filter works. **The buff row is full at 8
-  kinds**, which is `buffs.max` and has no options widget, and the trim in `PrepareTestAuras` runs
-  after the sort so the cap drops what a real row would drop. A ninth kind therefore doesn't just
-  fail to appear — it evicts the no-duration aura samples, which sort last, and makes `Hide Auras`
-  look broken. So a new filter's samples have to take over an existing pair's slot: the consumable
-  pair doubles as the not-castable/not-mine pair a Barkskin/Inner Fire pair used to cover. Same rule as layout: run
+  There is **one sample per option that can filter the row** (`testBuffSamples` /
+  `testDebuffSamples`), by **real spell ID**, so `AuraFiltered` judges them exactly as it judges live
+  auras and the icon is the real icon; the preview is therefore how a user confirms a filter works.
+  One each rather than two because `buffs.max` is a fixed 8 with no options widget and the trim in
+  `PrepareTestAuras` runs after the sort, so the cap drops what a real row would drop: with pairs, a
+  new filter's sample could only arrive by silently evicting another option's. **Adding a filter means
+  adding one sample.** Each sample must also be one no *other* filter removes, or the options mask
+  each other — that is why `Devotion Aura` is flagged castable though nothing can really cast it, and
+  why `Inner Fire` exists purely as the not-castable case. Same rule as layout: run
   samples through the shared code (`AuraFiltered`, `AuraSortCompare`,
   `XPerl_CooldownFrame_SetTimer`), never a lookalike. `castable`/`curable` on a sample stand in for
   the client filter, which a made-up aura can't be judged by. `mine` drives which of the
