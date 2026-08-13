@@ -214,8 +214,12 @@ is still unverified in game. The code touchpoints:
   spec plays around sort ahead of even the HoTs on the raid buff row, so they are never the icon the
   8-cap pushed off. The table is keyed by class then talent tab (1-3), with an `all` key for a buff
   that matters in every spec; **both** the tab list and the `all` list apply. `AuraSortCompare` needs
-  no knowledge of them: HoTs occupy 1..n and everything else 1000, so `PRIORITY_ORDER = 0` leads, and
-  two priority buffs up at once tie and fall through to the existing index tiebreak.
+  no knowledge of them: HoTs occupy 1..n and everything else 1000, so anything below 1 leads. Each
+  priority buff gets its **own** rank, `PRIORITY_ORDER_BASE` counting up in listed order — not one
+  shared rank, because equal ranks tie and fall through to the compare's aura-index tiebreak, which
+  is the slot-reuse order the sort exists to hide, so two procs up at once would swap places as one
+  refreshed into a different slot. A name already in the set keeps its first rank, so two ranks of
+  one spell resolving to the same name don't reorder it.
   The gate is the **viewer's** class and spec, not the unit's — `XPerl_PlayerClass()` and
   `XPerl_PlayerTalentTab()`, both in `XPerl.lua` beside `PlayerIsHealer` and sharing its
   `BestTalentTab()` helper and its respec/dual-spec event frame. So a fire mage sees no change, and a
@@ -230,7 +234,11 @@ is still unverified in game. The code touchpoints:
   the raid collectors used to discard — the `$parentcount` FontString has always been on
   `XPerl_BuffTemplate` and every other frame filled it. Shown only above 1, matching `XPerl.lua`.
   Test mode must clear it too: those buttons come from the same pool as the live ones, so a leftover
-  count would sit on a sample icon.
+  count would sit on a sample icon. Its font is rescaled in `LayoutAuras` alongside the cooldown
+  countdown's, and for the same reason — **any font on a raid aura button must be**. Other frames
+  are spared because `XPerl_GetBuffButton` does `SetScale(size / 32)`, which takes the fonts with it;
+  the raid rows set an explicit width and height, so a template font sized for a 32px icon would
+  draw at full size on a 10px one.
 - **Test mode** (`/xperl test`, `XPerl_Raid_TestMode` in `XPerl_Raid.lua`) — two sample groups for
   configuring aura layout outside a raid. Secure headers can only be filled by the game from the
   real roster, so this builds its own **non-secure** frames from `XPerl_Raid_FrameTemplate` and

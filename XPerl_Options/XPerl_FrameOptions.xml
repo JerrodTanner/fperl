@@ -1795,7 +1795,12 @@
 					XPerl_OptionsAnchor:SetWidth(width)
 					XPerl_OptionsAnchor:SetHeight(self:GetHeight())
 
-					XPerl_RegisterScalableFrame(self, XPerl_OptionsAnchor, 0.5, 1.2)
+					-- Max was 1.2, which fit exactly when this window was 640 tall: UIParent is
+					-- 768 units high whatever the resolution, and 640 * 1.2 is 768. At 670 the
+					-- same ceiling would put the title bar and the resize corner off screen, so
+					-- it comes down to 1.14 (670 * 1.14 = 764). Only a clamp on dragging the
+					-- corner, so nobody's saved scale is rewritten by this.
+					XPerl_RegisterScalableFrame(self, XPerl_OptionsAnchor, 0.5, 1.14)
 
 					self.initDone = true
 				end

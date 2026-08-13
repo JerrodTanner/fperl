@@ -803,6 +803,15 @@ local function LayoutAuras(self, container, count, aconf)
 			cd.countdown:SetFont(STANDARD_TEXT_FONT, max(8, floor(size * 0.55)), "OUTLINE")
 		end
 
+		-- And the stack count, for exactly the same reason. The template gives it a 24pt font for
+		-- a 32px icon, which at the default raid icon size of 10 would draw a number more than
+		-- twice the width of the icon it belongs to. Every other frame is spared this because
+		-- XPerl_GetBuffButton scales the whole button and takes the fonts with it; the raid rows
+		-- set an explicit width and height instead, so the fonts have to be handled here.
+		if (button.count) then
+			button.count:SetFont(STANDARD_TEXT_FONT, max(8, floor(size * 0.55)), "OUTLINE")
+		end
+
 		local x, y
 		if (a.wrapAcross) then
 			x, y = row * size * a.dx, col * size * a.dy
@@ -1004,7 +1013,12 @@ local priorityBuffs = {
 	DEATHKNIGHT = {
 		[2] = {59052, 51124, 51271},			-- Frost: Freezing Fog (the Rime proc), Killing
 								-- Machine, Unbreakable Armor
-		[3] = {63560, 49206},				-- Unholy: Ghoul Frenzy, Summon Gargoyle
+		-- Unholy: Ghoul Frenzy, Summon Gargoyle. Both are asked for, but on a stock 3.3.5a server
+		-- neither is an aura on the death knight - Ghoul Frenzy buffs the ghoul and Summon
+		-- Gargoyle has no player aura at all - so this row matches nothing there and the spec
+		-- silently gets no priority buff. It stands because this server's versions may differ.
+		-- Bone Shield (49222) or Runic Corruption (51460) are the real self buffs if not.
+		[3] = {63560, 49206},
 	},
 	MAGE = {
 		[1] = {44401, 12536},				-- Arcane: Missile Barrage, Clearcasting
@@ -1031,6 +1045,13 @@ local priorityBuffs = {
 		[3] = {59578, 53489},				-- Retribution: The Art of War, both ranks
 	},
 }
+
+-- Priority buffs rank below the HoTs, which start at 1, and each gets its own rank counting up from
+-- here in the order it is listed above. Not one shared rank for all of them: equal ranks tie in
+-- AuraSortCompare and fall through to its aura-index tiebreak, which is the slot order the sort
+-- exists to hide - so a frost death knight with Rime and Killing Machine up would see the two icons
+-- swap places whenever one refreshed into a different slot.
+local PRIORITY_ORDER_BASE = -100
 
 -- PriorityBuffNames()
 -- The set of buff names that lead the row for the spec the player is currently in, empty for a spec
@@ -1063,9 +1084,11 @@ local function PriorityBuffNames()
 				for i = 1, (ids and #ids or 0) do
 					local id = ids[i]
 					local name = (type(id) == "string") and id or GetSpellInfo(id)
-					if (name) then
-						set[name] = true
+					-- First listing wins, so two ranks of one spell resolving to the same name
+					-- keep the earlier place rather than the later one overwriting it.
+					if (name and not set[name]) then
 						resolved = resolved + 1
+						set[name] = PRIORITY_ORDER_BASE + resolved
 					end
 				end
 			end
@@ -1181,12 +1204,9 @@ local NO_EXPIRY = 1e9
 -- Reused between calls, entries included, so a busy raid isn't allocating 25 tables a tick
 local auraPool, auraList = {}, {}
 
--- Ordering rank, low first. HoTs take 1 to #hotSpellIDs and everything else 1000, which leaves 0
--- free for the spec's priority buffs to lead the row without this compare needing to know about
--- them. Two of them up at once (Rime and Killing Machine, say) tie here and fall through to the
--- index tiebreak below, so they hold a stable order rather than swapping around.
-local PRIORITY_ORDER = 0
-
+-- Ordering rank, low first. HoTs take 1 to #hotSpellIDs and everything else 1000, which leaves
+-- everything below 1 free for the spec's priority buffs (see PRIORITY_ORDER_BASE) to lead the row
+-- without this compare needing to know they exist.
 local function AuraSortCompare(x, y)
 	local xh, yh = x.hot or 1000, y.hot or 1000
 	if (xh ~= yh) then
@@ -1237,7 +1257,7 @@ local function CollectSortedBuffs(partyid, aconf, filter)
 			e.endTime = endTime
 			e.caster = caster
 			e.stacks = stacks
-			e.hot = priority[name] and PRIORITY_ORDER or hots[name]
+			e.hot = priority[name] or hots[name]
 			e.left = (duration and duration > 0 and endTime) and (endTime - now) or NO_EXPIRY
 		end
 	end
@@ -1659,7 +1679,7 @@ local function PrepareTestAuras(auraType, aconf, samples, out)
 				e.sample = sample
 				e.tex = tex
 				e.index = i
-				e.hot = priority[name] and PRIORITY_ORDER or hots[name]
+				e.hot = priority[name] or hots[name]
 				e.left = sample.left or NO_EXPIRY
 			end
 		end
