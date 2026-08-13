@@ -183,9 +183,22 @@ is still unverified in game. The code touchpoints:
   `CollectDebuffs`), so a filtered aura closes the row up instead of leaving a hole — which is why
   the real aura index travels on the entry and goes onto the button with `SetID` for the tooltip.
   The row's name/duration filters live in one place, `AuraFiltered()`: `buffs.hideGroupBuffs`,
-  `buffs.hideAuraBuffs` (anything with no duration — paladin auras, totems, mounts) and
+  `buffs.hideAuraBuffs` (anything with no duration — paladin auras, totems, mounts),
+  `buffs.hideConsumables` (flasks, elixirs, food, scrolls, buff-leaving potions, Flame Cap) and
   `debuffs.hideSated` (spell IDs 57724/57723). `Castable Only`/`Curable Only` are not in there:
   they are filter strings handed to the client and can only be judged against a real unit.
+  The three spell-list filters are matched **by name**, resolved from real spell IDs through
+  `AuraNameLists()` — which is the point, not an accident: every food in the game produces one buff
+  called `Well Fed`, so one ID covers the whole category, and the scroll ranks collapse the same
+  way. Several `consumableSpellIDs` entries therefore resolve to the same name deliberately. An ID
+  the client doesn't know resolves to nothing and is skipped, so a missing consumable still draws
+  rather than erroring — but do not pad the list with guessed IDs, because a wrong ID that *does*
+  resolve hides an unrelated buff. Comment each entry with the **buff** name it resolves to, not the
+  item's: the scroll block is the exception and is annotated as such, because a scroll's buff is a
+  bare stat word (`Agility`, `Armor`) and so is the one group that can over-match even with correct
+  IDs — a server-side buff by one of those names would go with it. Drums are deliberately absent for that reason: Drums of the Wild
+  applies `Gift of the Wild`, which is already a `hideGroupBuffs` entry, so listing the drums would
+  hide the druid's group buff whenever the consumables toggle was on and Hide Group Buffs was off.
 - **Test mode** (`/xperl test`, `XPerl_Raid_TestMode` in `XPerl_Raid.lua`) — two sample groups for
   configuring aura layout outside a raid. Secure headers can only be filled by the game from the
   real roster, so this builds its own **non-secure** frames from `XPerl_Raid_FrameTemplate` and
@@ -196,7 +209,12 @@ is still unverified in game. The code touchpoints:
   re-driven from `XPerl_Raid_OptionActions` and `XPerl_Raid_Position`.
   The samples are two per *kind* of aura (`testBuffSamples` / `testDebuffSamples`), by **real spell
   ID**, so `AuraFiltered` judges them exactly as it judges live auras and the icon is the real
-  icon; the preview is therefore how a user confirms a filter works. Same rule as layout: run
+  icon; the preview is therefore how a user confirms a filter works. **The buff row is full at 8
+  kinds**, which is `buffs.max` and has no options widget, and the trim in `PrepareTestAuras` runs
+  after the sort so the cap drops what a real row would drop. A ninth kind therefore doesn't just
+  fail to appear — it evicts the no-duration aura samples, which sort last, and makes `Hide Auras`
+  look broken. So a new filter's samples have to take over an existing pair's slot: the consumable
+  pair doubles as the not-castable/not-mine pair a Barkskin/Inner Fire pair used to cover. Same rule as layout: run
   samples through the shared code (`AuraFiltered`, `AuraSortCompare`,
   `XPerl_CooldownFrame_SetTimer`), never a lookalike. `castable`/`curable` on a sample stand in for
   the client filter, which a made-up aura can't be judged by. `mine` drives which of the

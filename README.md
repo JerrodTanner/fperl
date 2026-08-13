@@ -82,6 +82,17 @@ They don't expire and there's nothing to react to, so they're only ever taking u
 Anything with no duration counts, so the server's own auras are covered without a spell list to
 keep up to date.
 
+**Hide Consumables**, under those two, leaves out what people drink and eat — flasks, elixirs, food
+(**Well Fed**), scrolls, the potions that leave a buff behind (Speed, Wild Magic, Indestructible,
+Insane Strength, Mighty Rage, Free Action) and **Flame Cap**. Usually two icons per frame back on a
+raid where everyone is flasked and fed. Leave it off when you want to check who actually consumed.
+Check it with `/xperl test` — the buff samples include a flask and a **Well Fed**, and both go when
+you tick the box.
+
+It works from a spell list, so a flask or elixir the list doesn't know still shows — say which and
+it's a one-line fix. Scroll buffs are named after the stat, plain **Agility** or **Stamina**, so a
+server buff by one of those exact names would be hidden too; say so and those six entries come out.
+
 **Hide Sated** on the debuff row leaves out Bloodlust and Heroism's cooldown debuff — **Sated** and
 **Exhaustion**, whichever version the shaman who cast it had. It sits there for ten minutes, can't
 be removed, and with 8 icons to spend it can push a debuff you *do* need to see off the row. When
@@ -118,7 +129,7 @@ answers "is this option actually doing what I want?", not just "where does the r
 | Rejuvenation, Renew — *yours* | — (first in the row, being HoTs) |
 | Mark of the Wild, Power Word: Fortitude | **Hide Group Buffs** |
 | Devotion Aura, Trueshot Aura | **Hide Auras** (no duration) |
-| Barkskin, Inner Fire — *someone else's* | **Castable Only** |
+| Flask of Endless Rage, Well Fed — *someone else's* | **Hide Consumables**, and **Castable Only** |
 
 | Debuff samples | Removed by |
 | --- | --- |
@@ -196,7 +207,8 @@ To confirm it works on your server, group cross-faction, stand next to them and 
 - The three "No sibling found called..." errors when leaving a group. Two options were replaced by
   the Position dropdowns, but something still went looking for them.
 - Buff and debuff **Position**, **Size**, **Castable Only** and **Curable Only** now grey out when
-  their own row is switched off.
+  their own row is switched off. All the Raid tab's aura filters also grey out when **Raid Frames**
+  itself is off — they used to come back clickable the next time you opened the tab.
 - Test mode no longer draws a sample frame on top of your own when you're solo with Show When Solo
   on, and every Raid tab option redraws the samples now — the raid pet ones didn't.
 - Frame scale and position no longer reset after a relog. Opening the options window could
@@ -213,7 +225,8 @@ To confirm it works on your server, group cross-faction, stand next to them and 
 looks wrong — especially the new Raid tab controls, which were laid out without being able to see
 the tab. **Hide Auras** and **Hide Sated** sit beside **Hide Group Buffs** and **Curable Only**
 rather than under them, to keep the tab the height it is; if they crowd the **Groups** box they just
-need nudging.
+need nudging. **Castable Only** moved up beside **Raid Buffs** to free the line **Hide Consumables**
+now uses — same tab height, but that block of checkboxes shuffled, so give it a look.
 
 Raid pets in a party is the one change that depends on the client filling a pet block from a party
 the way it does from a raid. If the block stays empty in a 5-man, say so — the party pet frames on

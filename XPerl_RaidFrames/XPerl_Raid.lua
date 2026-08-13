@@ -870,11 +870,98 @@ local satedSpellIDs = {
 	57723,		-- Exhaustion (Heroism)
 }
 
-local hotOrder, groupBuffNames, satedNames
+-- Consumable buffs, hidden as one set by the Hide Consumables option. Like the group buffs these
+-- are long, self applied and nothing you can react to, so on a row capped at 8 icons they crowd
+-- out the short term buffs actually worth watching - but they are a separate set because whether
+-- you care is a different question: a raid leader checking flasks wants them, everyone else
+-- doesn't.
+--
+-- Matched by name rather than by ID (see AuraNameLists), which is what makes the food entries
+-- work: every food in this expansion produces one buff called "Well Fed", so a single ID covers
+-- all of them, and the same holds for the scroll ranks. An ID this client doesn't know resolves to
+-- nothing and is skipped, so a consumable missing from this list still shows rather than breaking
+-- the row. Adding one is a single line.
+local consumableSpellIDs = {
+	-- Flasks, Northrend
+	53755,		-- Flask of the Frost Wyrm
+	53760,		-- Flask of Endless Rage
+	53758,		-- Flask of Stoneblood
+	54212,		-- Flask of Pure Mojo
+	67016,		-- Flask of the North (spell power)
+	67017,		-- Flask of the North (strength)
+	67018,		-- Flask of the North (agility)
+
+	-- Flasks, older but still made and still used
+	28518,		-- Flask of Fortification
+	28519,		-- Flask of Mighty Restoration
+	28520,		-- Flask of Relentless Assault
+	28521,		-- Flask of Blinding Light
+	28540,		-- Flask of Pure Death
+	42735,		-- Flask of Chromatic Wonder
+	17626,		-- Flask of the Titans
+	17627,		-- Flask of Distilled Wisdom
+	17628,		-- Flask of Supreme Power
+	17629,		-- Flask of Chromatic Resistance
+
+	-- Elixirs. Included with the flasks because they fill the same slot for anyone not paying
+	-- flask money, so a list without them would leak most of what it is meant to catch.
+	53747,		-- Spellpower Elixir
+	53748,		-- Elixir of Mighty Strength
+	53749,		-- Guru's Elixir
+	53751,		-- Elixir of Mighty Fortitude
+	53763,		-- Elixir of Protection
+	60340,		-- Elixir of Accuracy
+	60341,		-- Elixir of Deadly Strikes
+	60343,		-- Elixir of Mighty Defense
+	60344,		-- Elixir of Expertise
+	60345,		-- Elixir of Armor Piercing
+	60346,		-- Elixir of Lightning Speed
+	60347,		-- Elixir of Mighty Thoughts
+	33720,		-- Onslaught Elixir
+	33721,		-- Adept's Elixir
+	33726,		-- Elixir of Mastery
+	28491,		-- Elixir of Healing Power
+	28497,		-- Elixir of Major Strength
+
+	-- Food. One name, "Well Fed", for every food in the game, so this is the whole category.
+	43722,		-- Well Fed
+	57358,		-- Well Fed
+	57426,		-- Well Fed
+
+	-- Scrolls. The base IDs, because the higher ranks share their names and so come along for
+	-- free. Every other entry in this table is commented with the buff name it resolves to; these
+	-- are the exception, and the reason they are worth a second look. A scroll's buff is named
+	-- after the stat, not after the scroll - "Agility", not "Scroll of Agility", and Scroll of
+	-- Protection reportedly gives "Armor" rather than "Protection" - so the strings these six put
+	-- into the set are bare stat words. Anything else on this server that produces a buff by one
+	-- of those exact names is hidden along with the scroll. Nothing in the base game does, but a
+	-- custom buff called "Stamina" or "Armor" is not far fetched here, and unlike the rest of this
+	-- table the risk is there even when the IDs are right. Drop this block if that bites.
+	8115,		-- Scroll of Agility
+	8117,		-- Scroll of Strength
+	8096,		-- Scroll of Intellect
+	8112,		-- Scroll of Spirit
+	8099,		-- Scroll of Stamina
+	8091,		-- Scroll of Protection
+
+	-- Potions that leave a buff behind. The ones that only heal or restore mana never appear on
+	-- the row at all, so there is nothing to list for them.
+	53908,		-- Speed (Potion of Speed)
+	53909,		-- Wild Magic (Potion of Wild Magic)
+	53762,		-- Indestructible (Indestructible Potion)
+	28494,		-- Insane Strength (Insane Strength Potion)
+	17528,		-- Mighty Rage (Mighty Rage Potion)
+	6615,		-- Free Action (Free Action Potion)
+
+	-- And the odd one out
+	28714,		-- Flame Cap
+}
+
+local hotOrder, groupBuffNames, satedNames, consumableNames
 local emptyNames = {}
 local function AuraNameLists()
 	if (not hotOrder) then
-		local hots, group, sated = {}, {}, {}
+		local hots, group, sated, consumable = {}, {}, {}, {}
 		local resolved = 0
 
 		for i = 1, #hotSpellIDs do
@@ -898,17 +985,26 @@ local function AuraNameLists()
 				resolved = resolved + 1
 			end
 		end
+		-- Several IDs deliberately resolve to the same name here (every food is "Well Fed"), and
+		-- keying the set by name is what makes that collapse into one entry.
+		for i = 1, #consumableSpellIDs do
+			local name = GetSpellInfo(consumableSpellIDs[i])
+			if (name) then
+				consumable[name] = true
+				resolved = resolved + 1
+			end
+		end
 
 		-- Don't keep the result until at least one name came back. Nothing resolving means the
 		-- spell data isn't readable yet, and caching that would silently kill buff ordering and
 		-- group buff hiding for the rest of the session.
 		if (resolved == 0) then
-			return emptyNames, emptyNames, emptyNames
+			return emptyNames, emptyNames, emptyNames, emptyNames
 		end
 
-		hotOrder, groupBuffNames, satedNames = hots, group, sated
+		hotOrder, groupBuffNames, satedNames, consumableNames = hots, group, sated, consumable
 	end
-	return hotOrder, groupBuffNames, satedNames
+	return hotOrder, groupBuffNames, satedNames, consumableNames
 end
 
 -- AuraFiltered(name, duration, aconf, auraType)
@@ -917,13 +1013,20 @@ end
 -- pretending it does. Castable Only and Curable Only are not here: those are handed to the client
 -- as a filter string and can only be judged against a real unit.
 local function AuraFiltered(name, duration, aconf, auraType)
-	local _, group, sated = AuraNameLists()
+	local _, group, sated, consumable = AuraNameLists()
 
 	if (auraType == "d") then
 		return (aconf.hideSated and sated[name]) and true or false
 	end
 
 	if (aconf.hideGroupBuffs and group[name]) then
+		return true
+	end
+
+	-- Flasks, elixirs, food, scrolls, potions and Flame Cap. Kept apart from the group buffs
+	-- because the two answer different questions - a raid leader checking who is flasked wants
+	-- these and not the class buffs.
+	if (aconf.hideConsumables and consumable[name]) then
 		return true
 	end
 
@@ -1253,10 +1356,18 @@ local testBuffSamples = {
 	{id = 465,							castable = true},	-- Devotion Aura
 	{id = 19506,							castable = true},	-- Trueshot Aura
 
-	-- Someone else's own buffs, which you can't cast: what Castable Only takes out. Their
-	-- Cooldown and Their Countdown apply to these.
-	{id = 22812,	duration = 12,	left = 8},							-- Barkskin
-	{id = 588,	duration = 1800, left = 900},							-- Inner Fire
+	-- Consumables: what Hide Consumables takes out. These also stand in for the buffs you can't
+	-- cast, which is what Castable Only takes out - nobody casts a flask or a meal on someone
+	-- else - and being someone else's they are what Their Cooldown and Their Countdown apply to.
+	-- One is nearly out so that a countdown number is showing on a buff that isn't mine, which is
+	-- the state Their Countdown Start has to be judged against.
+	--
+	-- They took the place of a Barkskin/Inner Fire pair that covered only the Castable Only case.
+	-- The buff row's cap is a fixed 8 and there were already 8 sample kinds, so adding a ninth and
+	-- tenth would have pushed the two aura samples off the row - the cap here drops what the real
+	-- row would drop - and left Hide Auras looking like it did nothing.
+	{id = 53760,	duration = 3600, left = 42},							-- Flask of Endless Rage
+	{id = 57426,	duration = 3600, left = 1620},							-- Well Fed
 }
 
 local testDebuffSamples = {
