@@ -218,16 +218,3 @@ To confirm it works on your server, group cross-faction, stand next to them and 
   **Unconfirmed** — if it persists, check for "Interface action failed because of an AddOn"; if
   instead spells are greyed in your spellbook with no error, that isn't something this addon can
   cause and it's worth testing with X-Perl disabled.
-
----
-
-**None of this has been played yet.** Treat the first session as the test, and say if anything
-looks wrong — especially the new Raid tab controls, which were laid out without being able to see
-the tab. **Hide Auras** and **Hide Sated** sit beside **Hide Group Buffs** and **Curable Only**
-rather than under them, to keep the tab the height it is; if they crowd the **Groups** box they just
-need nudging. **Castable Only** moved up beside **Raid Buffs** to free the line **Hide Consumables**
-now uses — same tab height, but that block of checkboxes shuffled, so give it a look.
-
-Raid pets in a party is the one change that depends on the client filling a pet block from a party
-the way it does from a raid. If the block stays empty in a 5-man, say so — the party pet frames on
-the Party tab still work, and that's the fallback.
