@@ -1563,11 +1563,26 @@ function XPerl_PlayerClass()
 	return playerClass
 end
 
--- Respeccing or swapping dual spec changes the answer, so drop the cache and re-check on next use
+-- Respeccing or swapping dual spec changes the answer, so drop the cache and re-check on next use.
+--
+-- PLAYER_REGEN_DISABLED is the one that matters on this server and is not upstream's. Spec changing
+-- here is a custom item rather than the talent UI, so none of the four talent events below can be
+-- relied on to fire for it - and if none of them fires, the cache holds the spec you had when you
+-- last logged in or zoned, for the whole session. What that looks like in game is a balance druid
+-- who swapped to feral and back seeing no Eclipse on the raid rows until a reload.
+--
+-- Entering combat is both a moment that always fires and the moment being in the wrong spec starts
+-- to matter, so clearing there re-reads the tab once per fight. Cheap: it is three
+-- GetTalentTabInfo calls, and only when something next asks. Reading talents is not protected, so
+-- it is safe under lockdown.
+--
+-- The talent events stay registered because they cost nothing and correct it immediately when they
+-- do fire - a normal respec at a trainer, or dual spec. The gap either way is that a spec change
+-- shows up on the rows no later than your next pull, not the instant you make it.
 do
 	local f = CreateFrame("Frame")
 	f:SetScript("OnEvent", function() isHealer, talentTab = nil, nil end)
-	for i, event in pairs({"PLAYER_ENTERING_WORLD", "CHARACTER_POINTS_CHANGED", "PLAYER_TALENT_UPDATE", "ACTIVE_TALENT_GROUP_CHANGED"}) do
+	for i, event in pairs({"PLAYER_ENTERING_WORLD", "CHARACTER_POINTS_CHANGED", "PLAYER_TALENT_UPDATE", "ACTIVE_TALENT_GROUP_CHANGED", "PLAYER_REGEN_DISABLED"}) do
 		pcall(f.RegisterEvent, f, event)
 	end
 end

@@ -1698,12 +1698,12 @@
 		<HighlightTexture file="Interface\QuestFrame\UI-QuestTitleHighlight" alphaMode="ADD"/>
 	</Button>
 
-	<!-- 30px taller than it was, for the Raid tab's third buff filter row. The tab area is sized
-	     off this frame, and the Raid tab is the tallest of them, so a row added there is what
-	     decides this number. Keep this and XPerl_Options below the same size. -->
+	<!-- 62px taller than stock, for the Raid tab's third and fourth buff filter rows. The tab area
+	     is sized off this frame, and the Raid tab is the tallest of them, so a row added there is
+	     what decides this number. Keep this and XPerl_Options below the same size. -->
 	<Frame name="XPerl_OptionsAnchor" parent="UIParent" movable="true" resizable="true">
 		<Size>
-			<AbsDimension x="650" y="670"/>
+			<AbsDimension x="650" y="702"/>
 		</Size>
 		<Anchors>
 			<Anchor point="CENTER"/>
@@ -1796,11 +1796,13 @@
 					XPerl_OptionsAnchor:SetHeight(self:GetHeight())
 
 					-- Max was 1.2, which fit exactly when this window was 640 tall: UIParent is
-					-- 768 units high whatever the resolution, and 640 * 1.2 is 768. At 670 the
-					-- same ceiling would put the title bar and the resize corner off screen, so
-					-- it comes down to 1.14 (670 * 1.14 = 764). Only a clamp on dragging the
-					-- corner, so nobody's saved scale is rewritten by this.
-					XPerl_RegisterScalableFrame(self, XPerl_OptionsAnchor, 0.5, 1.14)
+					-- 768 units high whatever the resolution, and 640 * 1.2 is 768. Any taller
+					-- and the same ceiling puts the title bar and the resize corner off screen
+					-- with no way to drag it back, so it comes down with every row added here:
+					-- 1.14 at 670, now 1.09 at 702 (702 * 1.09 = 765). **Recompute this whenever
+					-- the height above changes.** Only a clamp on dragging the corner, so
+					-- nobody's saved scale is rewritten by this.
+					XPerl_RegisterScalableFrame(self, XPerl_OptionsAnchor, 0.5, 1.09)
 
 					self.initDone = true
 				end
@@ -1837,7 +1839,7 @@
 		</Scripts>
 		<!-- Matches XPerl_OptionsAnchor; see the note there -->
 		<Size>
-			<AbsDimension x="650" y="670"/>
+			<AbsDimension x="650" y="702"/>
 		</Size>
 		<Anchors>
 			<Anchor point="TOPLEFT"/>
@@ -10129,6 +10131,7 @@
 									-- whole raid module switched off
 									XPerl_Options_EnableSibling(self, "HideAuraBuffs", "Buffs")
 									XPerl_Options_EnableSibling(self, "HideConsumables", "Buffs")
+									XPerl_Options_EnableSibling(self, "HideClassBuffs", "Buffs")
 									XPerl_Options_EnableSibling(self, "HideSated", "Debuffs")
 									XPerl_Options_EnableSibling(self, "BuffAnchor", "Buffs")
 									XPerl_Options_EnableSibling(self, "BuffSize", "Buffs")
@@ -10445,6 +10448,7 @@
 									XPerl_Options_EnableSibling(self, "HideGroupBuffs", "Enable")
 									XPerl_Options_EnableSibling(self, "HideAuraBuffs", "Enable")
 									XPerl_Options_EnableSibling(self, "HideConsumables", "Enable")
+									XPerl_Options_EnableSibling(self, "HideClassBuffs", "Enable")
 								end
 								-- Buffs and debuffs are independent rows now, so ticking one no
 								-- longer unticks the other.
@@ -10603,13 +10607,33 @@
 						</Scripts>
 					</CheckButton>
 
+					<!-- The fourth buff row filter, on its own row for the same reason as Hide
+					     Consumables above: the column runs out of width at about 238 and that
+					     label already spans it, so there is no room for a second column here. -->
+					<CheckButton name="$parent_HideClassBuffs" inherits="XPerlCheckButtonTemplate">
+						<Size><AbsDimension x="26" y="26"/></Size>
+						<Anchors>
+							<Anchor point="TOPLEFT" relativeTo="$parent_HideConsumables" relativePoint="BOTTOMLEFT">
+								<Offset><AbsDimension x="0" y="6"/></Offset>
+							</Anchor>
+						</Anchors>
+						<Scripts>
+							<OnLoad>
+								XPerl_OptionsSetMyText(self, "XPERL_CONF_RAID_HIDECLASSBUFFS")
+								self.configBase = "XPerlDB.raid.buffs"
+								self.configIndex = "hideClassBuffs"
+								self.configClick = XPerl_Raid_OptionActions
+							</OnLoad>
+						</Scripts>
+					</CheckButton>
+
 					<!-- Replaces the old "Buffs to Right" / "Buffs Inside" pair, which could
 					     only ever describe one shared row. Each type picks its own side now. -->
 					<Frame name="$parent_BuffAnchor" inherits="UIDropDownMenuTemplate" enableMouse="true">
 						<Anchors>
-							<!-- Follows Hide Consumables, the last of the filter checkboxes, rather
-							     than Hide Group Buffs, so the row added below it doesn't overlap -->
-							<Anchor point="TOPLEFT" relativeTo="$parent_HideConsumables" relativePoint="BOTTOMLEFT">
+							<!-- Follows Hide Class Buffs, the last of the filter checkboxes, rather
+							     than Hide Group Buffs, so the rows added below it don't overlap -->
+							<Anchor point="TOPLEFT" relativeTo="$parent_HideClassBuffs" relativePoint="BOTTOMLEFT">
 								<Offset><AbsDimension x="-18" y="-16"/></Offset>
 							</Anchor>
 						</Anchors>

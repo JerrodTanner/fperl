@@ -91,7 +91,9 @@ off. It only applies to the spec that plays around it — a fire mage sees nothi
 | Demonology warlock | Molten Core, Decimation |
 | Rogue, any spec | Slice and Dice |
 
-Respeccing switches it over on its own. **Castable Only has to be off** for these to show at all —
+Respeccing switches it over on its own, without a reload — including a swap by item, which is picked
+up on your next pull rather than the instant you use it. **Castable Only has to be off** for these to
+show at all —
 it limits the row to buffs you can cast on someone, and a proc isn't one.
 
 ## Stack counts on raid buff and debuff icons
@@ -123,6 +125,17 @@ it's a one-line fix. Anything with **Scourgebane** in the name is matched by nam
 the Draught and the Infusion go whatever their buffs turn out to be called. Scroll buffs are named
 after the stat, plain **Agility** or **Stamina**, so a server buff by one of those exact names would
 be hidden too; say so and those six entries come out.
+
+**Hide Class Buffs**, under those, leaves out the buffs people keep up on themselves — Lightning
+Shield and Water Shield, the mage and warlock armors, Battle and Commanding Shout, Inner Fire,
+Shadowform, Thorns, Horn of Winter, Righteous Fury and the seals, and the stances, forms, presences
+and aspects they stand in. They're always up, and all they tell you is what class and spec someone
+is, which their frame already shows.
+
+Anything your own spec watches for is never hidden by it, so a rogue still sees **Slice and Dice**
+and a frost death knight still sees **Unbreakable Armor**. The durationless ones in that list are
+also covered by **Hide Auras**, and they're listed here anyway so the two options stand alone — you
+can hide forms and presences while keeping paladin auras, or the other way round.
 
 **Hide Sated** on the debuff row leaves out Bloodlust and Heroism's cooldown debuff — **Sated** and
 **Exhaustion**, whichever version the shaman who cast it had. It sits there for ten minutes, can't
@@ -162,7 +175,8 @@ filter touches, so each one visibly changes the row on its own.
 | Mark of the Wild | **Hide Group Buffs** |
 | Devotion Aura | **Hide Auras** (no duration) |
 | Flask of Endless Rage — *someone else's* | **Hide Consumables** |
-| Inner Fire — *someone else's* | **Castable Only** |
+| Inner Fire — *someone else's* | **Hide Class Buffs** |
+| Berserking — *someone else's* | **Castable Only** |
 | Maelstrom Weapon *(5 stacks)* | — (previews the stack number) |
 
 | Debuff sample | Removed by |

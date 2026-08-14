@@ -2610,6 +2610,7 @@ local function XPerl_Raid_ConfigDefault(default)
 --			hideGroupBuffs	= nil,			-- Off, so the row looks the same until asked otherwise
 --			hideAuraBuffs	= nil,			-- Off likewise. Hides buffs with no duration at all
 --			hideConsumables	= nil,			-- Off likewise. Flasks, elixirs, food, scrolls, potions
+--			hideClassBuffs	= nil,			-- Off likewise. Shields, armors, shouts, seals, forms
 --			untilDebuffed	= nil,			-- 2.1.3
 		},
 		debuffs = {

@@ -184,8 +184,9 @@ is still unverified in game. The code touchpoints:
   the real aura index travels on the entry and goes onto the button with `SetID` for the tooltip.
   The row's name/duration filters live in one place, `AuraFiltered()`: `buffs.hideGroupBuffs`,
   `buffs.hideAuraBuffs` (anything with no duration — paladin auras, totems, mounts),
-  `buffs.hideConsumables` (flasks, elixirs, food, scrolls, buff-leaving potions, Flame Cap) and
-  `debuffs.hideSated` (spell IDs 57724/57723). `Castable Only`/`Curable Only` are not in there:
+  `buffs.hideConsumables` (flasks, elixirs, food, scrolls, buff-leaving potions, Flame Cap),
+  `buffs.hideClassBuffs` (shields, armors, shouts, seals, Inner Fire, Thorns, Horn of Winter, plus
+  the stances/forms/presences/aspects) and `debuffs.hideSated` (spell IDs 57724/57723). `Castable Only`/`Curable Only` are not in there:
   they are filter strings handed to the client and can only be judged against a real unit.
   The three spell-list filters are matched **by name**, resolved from real spell IDs through
   `AuraNameLists()` — which is the point, not an accident: every food in the game produces one buff
@@ -210,6 +211,14 @@ is still unverified in game. The code touchpoints:
   icons come from `XPerl_PlayerBuffs` and no raid option reaches them. Drums are deliberately absent for that reason: Drums of the Wild
   applies `Gift of the Wild`, which is already a `hideGroupBuffs` entry, so listing the drums would
   hide the druid's group buff whenever the consumables toggle was on and Hide Group Buffs was off.
+  `classBuffSpellIDs` follows the same by-name rules — ranks collapse, unknown IDs are skipped, don't
+  guess IDs. Two things are specific to it. **Nothing in `priorityBuffs` may be hidden by it**, and
+  that is enforced in `AuraFiltered` (`not PriorityBuffNames()[name]`) rather than by keeping the
+  tables apart by hand, so a self buff added to `priorityBuffs` later can't silently start vanishing
+  — Slice and Dice is the live collision. And **racials stay out**: they aren't class buffs, and
+  Berserking is test mode's Castable Only sample, which has to be one no other filter touches. The
+  durationless entries (stances, forms, presences, aspects) duplicate what `hideAuraBuffs` catches on
+  purpose, so the two options stand alone.
 - **Spec priority buffs** (`priorityBuffs` / `PriorityBuffNames()` in `XPerl_Raid.lua`) — the procs a
   spec plays around sort ahead of even the HoTs on the raid buff row, so they are never the icon the
   8-cap pushed off. The table is keyed by class then talent tab (1-3), with an `all` key for a buff
@@ -222,7 +231,14 @@ is still unverified in game. The code touchpoints:
   one spell resolving to the same name don't reorder it.
   The gate is the **viewer's** class and spec, not the unit's — `XPerl_PlayerClass()` and
   `XPerl_PlayerTalentTab()`, both in `XPerl.lua` beside `PlayerIsHealer` and sharing its
-  `BestTalentTab()` helper and its respec/dual-spec event frame. So a fire mage sees no change, and a
+  `BestTalentTab()` helper and its respec/dual-spec event frame. That frame registers
+  **`PLAYER_REGEN_DISABLED`** on top of upstream's four talent events, and it is the one that
+  matters here: spec changing on this server is a custom item, not the talent UI, so no talent event
+  is guaranteed to fire for it — and with nothing clearing the cache, it holds the spec you had at
+  login for the whole session (a balance druid who swapped to feral and back saw no Eclipse until a
+  reload). Entering combat always fires and is when the answer starts to matter, so the tab is
+  re-read at most once a fight. Reading talents isn't protected, so it's safe under lockdown. The
+  consequence to know: a spec change reaches the rows by your next pull, not instantly. So a fire mage sees no change, and a
   frost mage sees Fingers of Frost lead on *any* frame that has it.
   `PriorityBuffNames()` keeps its own cache keyed on the talent tab rather than registering events:
   when `XPerl_PlayerTalentTab()` goes stale the tab differs and the set rebuilds. It follows the same

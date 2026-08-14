@@ -989,6 +989,107 @@ local consumableNameParts = {
 	"Scourgebane",		-- Scourgebane Draught, Scourgebane Infusion, and any other variant
 }
 
+-- Class buffs: the ones a player keeps up on themselves out of habit. Shields, armors, shouts,
+-- seals, and the stances, forms, presences and aspects they stand in. Hidden as one set by the Hide
+-- Class Buffs option, on the same argument as the group buffs and consumables - they are always up,
+-- nothing you can react to, and on a row capped at 8 icons they push off the buffs you are actually
+-- watching. A third set rather than more entries in the other two because it answers its own
+-- question: these say what class and spec someone is, which their frame already tells you.
+--
+-- The durationless ones at the bottom are also caught by Hide Auras, and are listed anyway so this
+-- option stands alone - Hide Auras is about proximity auras cast on other people and someone may
+-- well want those and not these.
+--
+-- Matched by name through AuraNameLists like the rest, so ranks collapse and an ID this client
+-- doesn't know is skipped rather than breaking the row. Each entry is commented with the buff name
+-- it resolves to. Same warning as the consumables: don't pad this with guessed IDs, because a wrong
+-- ID that does resolve hides an unrelated buff.
+--
+-- Nothing in priorityBuffs may be hidden by this. That is enforced in AuraFiltered rather than by
+-- keeping the two lists apart by hand, so a spell added to priorityBuffs later can't silently start
+-- disappearing here - Slice and Dice is exactly the collision, being a rogue's whole rotation and
+-- also a self buff nobody else needs to see.
+--
+-- Racials (Berserking, Blood Fury, Every Man for Himself) are deliberately absent. They are not
+-- class buffs, and Berserking is test mode's Castable Only sample, which has to be a sample no
+-- other filter touches.
+local classBuffSpellIDs = {
+	-- Warrior. The shouts are group wide but self cast and permanently up, so they belong here
+	-- rather than with the group buffs, which are the ones somebody had to hand out.
+	6673,		-- Battle Shout
+	469,		-- Commanding Shout
+	2457,		-- Battle Stance
+	71,		-- Defensive Stance
+	2458,		-- Berserker Stance
+
+	-- Shaman. Weapon imbues are temporary enchants, not auras, so there is nothing to list for
+	-- them - see the note at the bottom of the consumables table.
+	324,		-- Lightning Shield
+	52127,		-- Water Shield
+
+	-- Priest. Earth Shield and Power Word: Shield are absent on purpose: both are cast on other
+	-- people and are worth seeing.
+	588,		-- Inner Fire
+	15473,		-- Shadowform
+
+	-- Mage. One armor is up at all times and which one is a spec tell, not news.
+	168,		-- Frost Armor
+	7302,		-- Ice Armor
+	6117,		-- Mage Armor
+	30482,		-- Molten Armor
+
+	-- Warlock
+	28176,		-- Fel Armor
+	687,		-- Demon Skin
+	696,		-- Demon Armor
+
+	-- Paladin. The seals, which change with every swing of the rotation and mean nothing on
+	-- someone else's frame. Blessings are group buffs and stay in that list.
+	20154,		-- Seal of Righteousness
+	20164,		-- Seal of Justice
+	20165,		-- Seal of Light
+	20166,		-- Seal of Wisdom
+	31801,		-- Seal of Vengeance
+	53736,		-- Seal of Corruption
+	20375,		-- Seal of Command
+	53720,		-- Seal of the Martyr
+	31892,		-- Seal of Blood
+	25780,		-- Righteous Fury
+
+	-- Druid. Forms, plus Thorns, which is cast on others but is an hour long and permanent in
+	-- practice.
+	768,		-- Cat Form
+	5487,		-- Bear Form
+	9634,		-- Dire Bear Form
+	24858,		-- Moonkin Form
+	33891,		-- Tree of Life
+	1066,		-- Aquatic Form
+	783,		-- Travel Form
+	33943,		-- Flight Form
+	40120,		-- Swift Flight Form
+	467,		-- Thorns
+
+	-- Hunter. Aspects, one of which is always up.
+	13165,		-- Aspect of the Hawk
+	61846,		-- Aspect of the Dragonhawk
+	34074,		-- Aspect of the Viper
+	5118,		-- Aspect of the Cheetah
+	13163,		-- Aspect of the Monkey
+	13159,		-- Aspect of the Pack
+	13161,		-- Aspect of the Beast
+	20043,		-- Aspect of the Wild
+
+	-- Death knight
+	48263,		-- Blood Presence
+	48266,		-- Frost Presence
+	48265,		-- Unholy Presence
+	57330,		-- Horn of Winter
+
+	-- Rogue has nothing here and shouldn't. Slice and Dice is the one self buff and it is a
+	-- priority buff, poisons are weapon enchants this can never see, and Stealth doesn't reach a
+	-- raid frame. Same for the death knight's runeforges.
+}
+
 -- Shared by every name set below, and declared up here because PriorityBuffNames returns it before
 -- AuraNameLists is defined. Never written to.
 local emptyNames = {}
@@ -1104,10 +1205,10 @@ local function PriorityBuffNames()
 	return priorityNames
 end
 
-local hotOrder, groupBuffNames, satedNames, consumableNames
+local hotOrder, groupBuffNames, satedNames, consumableNames, classBuffNames
 local function AuraNameLists()
 	if (not hotOrder) then
-		local hots, group, sated, consumable = {}, {}, {}, {}
+		local hots, group, sated, consumable, classBuff = {}, {}, {}, {}, {}
 		local resolved = 0
 
 		for i = 1, #hotSpellIDs do
@@ -1140,17 +1241,26 @@ local function AuraNameLists()
 				resolved = resolved + 1
 			end
 		end
+		-- Ranks collapse here the same way the food IDs do above - every rank of Inner Fire is one
+		-- name, which is why only the base ID of each ranked spell is listed.
+		for i = 1, #classBuffSpellIDs do
+			local name = GetSpellInfo(classBuffSpellIDs[i])
+			if (name) then
+				classBuff[name] = true
+				resolved = resolved + 1
+			end
+		end
 
 		-- Don't keep the result until at least one name came back. Nothing resolving means the
 		-- spell data isn't readable yet, and caching that would silently kill buff ordering and
 		-- group buff hiding for the rest of the session.
 		if (resolved == 0) then
-			return emptyNames, emptyNames, emptyNames, emptyNames
+			return emptyNames, emptyNames, emptyNames, emptyNames, emptyNames
 		end
 
-		hotOrder, groupBuffNames, satedNames, consumableNames = hots, group, sated, consumable
+		hotOrder, groupBuffNames, satedNames, consumableNames, classBuffNames = hots, group, sated, consumable, classBuff
 	end
-	return hotOrder, groupBuffNames, satedNames, consumableNames
+	return hotOrder, groupBuffNames, satedNames, consumableNames, classBuffNames
 end
 
 -- AuraFiltered(name, duration, aconf, auraType)
@@ -1159,7 +1269,7 @@ end
 -- pretending it does. Castable Only and Curable Only are not here: those are handed to the client
 -- as a filter string and can only be judged against a real unit.
 local function AuraFiltered(name, duration, aconf, auraType)
-	local _, group, sated, consumable = AuraNameLists()
+	local _, group, sated, consumable, classBuff = AuraNameLists()
 
 	if (auraType == "d") then
 		return (aconf.hideSated and sated[name]) and true or false
@@ -1182,6 +1292,15 @@ local function AuraFiltered(name, duration, aconf, auraType)
 				return true
 			end
 		end
+	end
+
+	-- Shields, armors, shouts, seals, stances, forms, presences and aspects. The priority check is
+	-- what keeps this from hiding the icon the spec's priority list exists to promote, and it is
+	-- here rather than enforced by keeping the two tables apart, so adding a self buff to
+	-- priorityBuffs later can never make it vanish from a row that had it. Cheap: the class set
+	-- misses for almost every buff, so PriorityBuffNames is only reached for the handful that hit.
+	if (aconf.hideClassBuffs and classBuff[name] and not PriorityBuffNames()[name]) then
+		return true
 	end
 
 	-- Aura buffs are the permanent proximity ones - paladin auras, totem buffs, Blood Pact,
@@ -1547,11 +1666,20 @@ local testBuffSamples = {
 	-- else sees it sort on time remaining like anything else.
 	{id = 53817,	duration = 30,	left = 21,	stacks = 5,	mine = true,	castable = true},	-- Maelstrom Weapon
 
+	-- What Hide Class Buffs takes out. Long and self cast, like the real thing. Flagged castable
+	-- for the same reason Devotion Aura is, and it is the same fib: nobody can cast Inner Fire on
+	-- a raid member. Without it Castable Only removes this sample, and ticking Hide Class Buffs
+	-- with Castable Only on would change nothing on the row - the masking every sample is chosen
+	-- to avoid. Berserking below is the honest not-castable case now.
+	{id = 588,	duration = 1800, left = 900,			castable = true},	-- Inner Fire
+
 	-- What Castable Only takes out: someone else's own buff, which you cannot cast. This has to be
 	-- a sample no other filter touches. When the consumables above were doing this job too,
 	-- ticking Hide Consumables left Castable Only with nothing to remove and the preview stopped
 	-- answering for it - the exact "did that option do anything?" failure the samples exist for.
-	{id = 588,	duration = 1800, left = 900},							-- Inner Fire
+	-- Inner Fire above used to do this job and can't now that it is the class buff sample, so this
+	-- is a racial: not a class buff by any reading, and deliberately kept out of classBuffSpellIDs.
+	{id = 26297,	duration = 10,	left = 7},							-- Berserking
 }
 
 local testDebuffSamples = {
