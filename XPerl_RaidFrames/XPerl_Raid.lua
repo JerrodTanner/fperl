@@ -1315,12 +1315,26 @@ local function AuraFiltered(name, duration, aconf, auraType)
 end
 
 -- Scan past the icon cap so the sort picks from everything present rather than the cap
--- deciding first. Kept modest because with Castable Only on, each lookup also walks the
--- unfiltered list to recover the real aura index.
-local AURA_SCAN_MAX = 24
+-- deciding first. 40 is the whole aura list on this client, which is what the rest of the addon
+-- scans (XPerl.lua and XPerl_Highlight.lua both walk 1..40).
+--
+-- This was 24, on the reasoning that a lower cap was cheaper because with Castable Only on each
+-- lookup also walks the unfiltered list to recover the real aura index. That was wrong twice
+-- over. Both collectors break at the first missing aura, so the cap costs nothing for a unit
+-- carrying fewer auras than it - it is only ever reached by a unit that really has that many,
+-- which is precisely the case it was breaking. And filtering happens after the scan, so hiding
+-- group buffs or consumables frees no scan slots: a unit over the cap lost auras no option could
+-- bring back.
+--
+-- What that looked like in game: a buff applied mid fight takes a slot at the end of the list, so
+-- on a balance druid carrying 24+ auras - raid buffs, totems, consumables, a form, and trinket
+-- procs on top - Eclipse sat past the cap and was never scanned. No sort could save it, which
+-- made the spec priority buffs above a promise the row could not keep at exactly the moment it
+-- mattered. Anything short of the full list has the same hole further out.
+local AURA_SCAN_MAX = 40
 local NO_EXPIRY = 1e9
 
--- Reused between calls, entries included, so a busy raid isn't allocating 25 tables a tick
+-- Reused between calls, entries included, so a busy raid isn't allocating a tableful a tick
 local auraPool, auraList = {}, {}
 
 -- Ordering rank, low first. HoTs take 1 to #hotSpellIDs and everything else 1000, which leaves

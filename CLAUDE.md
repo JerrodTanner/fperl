@@ -37,7 +37,14 @@ Target `## Interface: 30300`. Retail/Classic-era APIs do not exist here:
 - Register events defensively with `pcall(f.RegisterEvent, f, event)` when an event may not exist
   on this client build.
 - Anything that touches secure frames must respect `InCombatLockdown()`; the codebase queues such
-  work via `tinsert(XPerl_OutOfCombatQueue, func)`.
+  work via `tinsert(XPerl_OutOfCombatQueue, func)`. Only ever `tinsert` into it — the
+  `PLAYER_REGEN_ENABLED` drain in `XPerl_Globals.lua` swaps in a fresh table and walks the detached
+  one by index, which is defined behaviour only because every key is an integer. A queued call may
+  queue more work; that lands in the new table and runs at the next combat end, not in the same
+  pass. Each entry goes through `XPerl_pcall`, so one failing entry no longer loses the rest of the
+  queue — keep that, and don't swap it for a bare `pcall`: it routes the error to
+  `geterrorhandler()`, which is what keeps a failure visible instead of silently dropping a frame's
+  configuration.
 
 ## Architecture
 
@@ -182,6 +189,13 @@ is still unverified in game. The code touchpoints:
   Both rows are built by collecting first and drawing second (`CollectSortedBuffs`,
   `CollectDebuffs`), so a filtered aura closes the row up instead of leaving a hole — which is why
   the real aura index travels on the entry and goes onto the button with `SetID` for the tooltip.
+  `AURA_SCAN_MAX` is **40, the whole aura list, and must not be lowered** as an optimisation. Both
+  collectors break at the first missing aura, so the cap costs nothing for a unit carrying fewer
+  auras than it — the only unit that ever reaches it is one that really has that many. And
+  filtering runs *after* the scan, so hiding group buffs or consumables frees no scan slots: at 24
+  a unit over the cap lost auras no option could bring back, and since a buff applied mid-fight
+  takes a slot at the end of the list, the thing it lost was the freshest aura on the frame. That
+  is what made the priority buffs below miss Eclipse on a well-buffed druid.
   The row's name/duration filters live in one place, `AuraFiltered()`: `buffs.hideGroupBuffs`,
   `buffs.hideAuraBuffs` (anything with no duration — paladin auras, totems, mounts),
   `buffs.hideConsumables` (flasks, elixirs, food, scrolls, buff-leaving potions, Flame Cap),

@@ -279,15 +279,50 @@ local function onEventPostSetup(self, event, unit, ...)
 			XPerl_OutOfCombatOptionSet = nil
 			XPerl_OptionActions()
 		end
-		for k,v in pairs(XPerl_OutOfCombatQueue) do
+		-- Detached before anything runs, rather than walked in place. This used to iterate the
+		-- live table with pairs() and clear each key as it went, while the calls it makes are
+		-- free to queue more work - every queuer here re-queues itself if it finds the secure
+		-- environment still locked down (XPerl_ProtectedCall, XPerl_Raid_ChangeAttributes,
+		-- XPerl_Party_CheckRaid, XPerl_Party_Set_Bits).
+		--
+		-- Assigning to a key that doesn't exist yet during a pairs() traversal is undefined
+		-- behaviour by the Lua manual. Not observed behaviour, to be clear: the queue is only
+		-- ever built with tinsert, so every key is an integer in the array part, and appending
+		-- there is benign in practice - the original entries all still run and the appended ones
+		-- get picked up in the same pass. Nor does it come up as things stand, since
+		-- InCombatLockdown() is already false when PLAYER_REGEN_ENABLED fires, so none of those
+		-- guards fires and nothing appends. This is hardening a documented-undefined pattern that
+		-- happens to work, not fixing a crash - and the interpreter it has to be right on is the
+		-- client's 5.1, which can't be tested from outside the game.
+		--
+		-- The trade, stated because it is a real difference: an entry queued *during* a drain now
+		-- waits for the next combat end instead of running in the same pass. Unobservable while
+		-- nothing appends, and the safe direction to be wrong in. Deliberately not re-drained in
+		-- a loop, either: a function that queued itself unconditionally would spin forever, and a
+		-- hung client is worse than a late layout.
+		local queue = XPerl_OutOfCombatQueue
+		XPerl_OutOfCombatQueue = {}
+
+		-- Each entry is isolated, because the queue is a shared bus and one bad passenger used to
+		-- take the rest with it. Walked in place, an error left the erroring entry uncleared (the
+		-- old loop nil'd a key only *after* its call returned), so every combat end retried it,
+		-- hit the same error, and never reached anything behind it. Detached, the error instead
+		-- discards the tail permanently, since the table holding it has already been replaced.
+		-- Both lose the queue behind a failure, which is how a stale party layout outlives the
+		-- fight that caused it.
+		--
+		-- XPerl_pcall rather than a bare pcall: it hands the error to geterrorhandler(), so this
+		-- isolates the entries without hiding anything from BugSack. That matters - a silent drain
+		-- would bury the very errors worth finding here.
+		for k = 1, #queue do
+			local v = queue[k]
 			if (type(v) == "function") then
-				v()
+				XPerl_pcall(v)
 			elseif (type(v) == "table") then
-				v[1](v[2])
+				XPerl_pcall(v[1], v[2])
 			elseif (type(v) == "string") then
-				RunScript(v)
+				XPerl_pcall(RunScript, v)
 			end
-			XPerl_OutOfCombatQueue[k] = nil
 		end
 
 	--elseif (event == "ADDON_ACTION_BLOCKED") then
