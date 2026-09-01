@@ -113,6 +113,8 @@ XPERL_TEST_MODE_ON	= "Raid test mode |c0000FF00on|r - two sample groups with sam
 XPERL_TEST_MODE_OFF	= "Raid test mode |c00FF0000off|r."
 XPERL_TEST_MODE_COMBAT	= "Raid test mode can't be changed in combat."
 XPERL_TEST_MODE_NO_RAID_MODULE = "Raid test mode needs the Raid Frames module turned on (Frames tab)."
+XPERL_TOTEM_DRAGTIP	= "Drag to move the totem frame"
+
 XPERL_CMD_MENU		= "menu"
 XPERL_CMD_OPTIONS	= "options"
 XPERL_CMD_LOCK		= "lock"

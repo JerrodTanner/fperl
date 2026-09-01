@@ -862,6 +862,12 @@ function XPerl_UnlockFrames()
 		XPerl_AggroAnchor:Enable()
 	end
 
+	-- Fork change: the Blizzard totem frame is dragged by its own anchor now instead of being
+	-- nudged by offset sliders, so its move handle has to appear with everything else.
+	if (XPerl_Player_TotemAnchorUpdate) then
+		XPerl_Player_TotemAnchorUpdate()
+	end
+
 	if (XPerl_Player) then
 		if (XPerl_Player.runes) then
 			XPerl_Player.runes:EnableMouse(true)
@@ -900,6 +906,11 @@ function XPerl_LockFrames()
 
 	if (XPerl_AggroAnchor) then
 		XPerl_AggroAnchor:Disable()
+	end
+
+	-- Fork change: see XPerl_UnlockFrames - put the totem frame's move handle away again.
+	if (XPerl_Player_TotemAnchorUpdate) then
+		XPerl_Player_TotemAnchorUpdate()
 	end
 
 	if (XPerl_Player) then

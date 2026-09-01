@@ -27,6 +27,12 @@ local function XPerl_SlashHandler(msg)
 				XPerl_RaidPets_Titles()
 			end
 		end
+		-- Fork change: these two branches set XPerlLocked themselves instead of going through
+		-- XPerl_LockFrames/XPerl_UnlockFrames, so the totem anchor's move handle has to be told
+		-- here too or it would stay up after /xperl lock.
+		if (XPerl_Player_TotemAnchorUpdate) then
+			XPerl_Player_TotemAnchorUpdate()
+		end
 
 	elseif (args[1] == XPERL_CMD_UNLOCK) then
 		XPerlLocked = 0
@@ -35,6 +41,9 @@ local function XPerl_SlashHandler(msg)
 			if (XPerl_RaidPets_Titles) then
 				XPerl_RaidPets_Titles()
 			end
+		end
+		if (XPerl_Player_TotemAnchorUpdate) then
+			XPerl_Player_TotemAnchorUpdate()
 		end
 
 	elseif (args[1] == XPERL_CMD_TEST) then

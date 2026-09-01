@@ -406,4 +406,77 @@
 			</Frame>
 		</Frames>
 	</Button>
+
+	<!-- Fork change: upstream had no frame here at all - the Blizzard totem frame was pinned to
+	     XPerl_Player's bottom edge and nudged with two offset sliders, so it could never sit
+	     anywhere else. It now hangs off this anchor, which the player drags while the frames are
+	     unlocked and whose position is saved and restored like every other X-Perl frame. The
+	     anchor exists so there is something to grab when no totems are out, since the Blizzard
+	     frame draws nothing at all in that state. -->
+	<Frame name="XPerl_Player_TotemAnchor" parent="UIParent" movable="true" clampedToScreen="true" frameStrata="LOW" hidden="true">
+		<Size>
+			<AbsDimension x="132" y="40"/>
+		</Size>
+		<Anchors>
+			<Anchor point="CENTER"/>
+		</Anchors>
+		<Frames>
+			<Frame name="$parentArrows" frameStrata="HIGH" enableMouse="true">
+				<Size>
+					<AbsDimension x="32" y="32"/>
+				</Size>
+				<Anchors>
+					<Anchor point="CENTER"/>
+				</Anchors>
+				<Layers>
+					<Layer level="ARTWORK">
+						<Texture name="$parenttex" file="Interface\Addons\XPerl\XPerl_RaidHelper\Images\XPerl_MoveCursor" setAllPoints="true"/>
+					</Layer>
+				</Layers>
+				<Scripts>
+					<OnLoad>
+						self:RegisterForDrag("LeftButton")
+					</OnLoad>
+					<OnEnter>
+						GameTooltip:SetOwner(self, "ANCHOR_CURSOR")
+						GameTooltip:SetText(XPERL_TOTEM_DRAGTIP, 1, 1, 1)
+					</OnEnter>
+					<OnLeave>
+						GameTooltip:Hide()
+					</OnLeave>
+					<OnDragStart>
+						if (XPerlLocked == 0) then
+							GameTooltip:Hide()
+							XPerl_Player_TotemAnchor:StartMoving()
+						end
+					</OnDragStart>
+					<OnDragStop>
+						XPerl_Player_TotemAnchor:StopMovingOrSizing()
+						XPerl_SwitchAnchor(XPerl_Player_TotemAnchor, "TOPLEFT")
+						XPerl_SavePosition(XPerl_Player_TotemAnchor)
+					</OnDragStop>
+				</Scripts>
+			</Frame>
+		</Frames>
+		<Scripts>
+			<OnLoad>
+				XPerl_SetChildMembers(self)
+
+				-- Only ever offer the handle for a frame X-Perl is actually placing. 'active' is
+				-- set by XPerl_Player_SetTotems, so a non-shaman - or a shaman with the option
+				-- off - never gets a stray move cursor in the middle of the screen.
+				self.Enable = function(self)
+					if (self.active) then
+						self.Arrows:Show()
+					end
+				end
+				self.Disable = function(self)
+					self:StopMovingOrSizing()
+					self.Arrows:Hide()
+				end
+
+				self:Disable()
+			</OnLoad>
+		</Scripts>
+	</Frame>
 </Ui>

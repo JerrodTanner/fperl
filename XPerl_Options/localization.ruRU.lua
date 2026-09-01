@@ -303,10 +303,6 @@ XPERL_CONF_PLAYER_BUFF_ROWS_DESC				= "Регулировать максимал
 XPERL_CONF_PLAYER_TOTEMS						= "Фрейм Тотема"
 XPERL_CONF_PLAYER_TOTEMS_ENABLE					= "Включить"
 XPERL_CONF_PLAYER_TOTEMS_ENABLE_DESC			= "Перехватить близзардский фрейм тотемов"
-XPERL_CONF_PLAYER_TOTEM_OFFSETX					= "Cмещение по горизонтали"
-XPERL_CONF_PLAYER_TOTEM_OFFSETX_DESC			= "Регулировать расположение по горизонтали"
-XPERL_CONF_PLAYER_TOTEM_OFFSETY					= "Cмещение по вертикали"
-XPERL_CONF_PLAYER_TOTEM_OFFSETY_DESC			= "Регулировать расположение по вертикали"
 
 XPERL_CONF_TARGET_PORTRAIT						= "Портрет цели"
 XPERL_CONF_TARGET_PORTRAIT_DESC					= "Включает отображение портретов цели"

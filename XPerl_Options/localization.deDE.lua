@@ -300,10 +300,6 @@ XPERL_CONF_PLAYER_BUFF_ROWS_DESC		= "Passe die Anzeige f\195\188r die maximale A
 XPERL_CONF_PLAYER_TOTEMS				= "Blizzard Totem Frame"
 XPERL_CONF_PLAYER_TOTEMS_ENABLE			= "Aktiviert"
 XPERL_CONF_PLAYER_TOTEMS_ENABLE_DESC	= "Hijack den Blizzard Totem Frame"
-XPERL_CONF_PLAYER_TOTEM_OFFSETX			= "Horizontale Verschiebung"
-XPERL_CONF_PLAYER_TOTEM_OFFSETX_DESC	= "Die horizontale Verschiebung anpassen"
-XPERL_CONF_PLAYER_TOTEM_OFFSETY			= "Vertikale Verschiebung"
-XPERL_CONF_PLAYER_TOTEM_OFFSETY_DESC	= "Die vertikale Verschiebung anpassen"
 
 XPERL_CONF_TARGET_PORTRAIT              = "Zielportrait"
 XPERL_CONF_TARGET_PORTRAIT_DESC         = "Aktiviere die Anzeige f\195\188r das Zielportrait\r|c00FF0000NOTIZ: Der Trefferindikator ist abh\195\164ngig hiervon."

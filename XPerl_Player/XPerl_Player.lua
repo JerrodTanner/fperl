@@ -1038,17 +1038,154 @@ local function MakeXPBars(self)
 	MakeXPBars = nil
 end
 
+-- TotemAnchorPlaceDefault(useLegacyOffsets)
+-- Fork change: this is where the retired pconf.totems.offsetX/offsetY end up. Upstream pinned the
+-- Blizzard totem frame to XPerl_Player's bottom edge and let those two sliders nudge it, so it
+-- could only ever live under the player frame. The frame is dragged now, and this puts the anchor
+-- at the spot the old settings described - or straight under the player frame for a config that
+-- never had them - and saves that as its first real position.
+--
+-- Only the migration passes useLegacyOffsets. The options panel's Reset Position must not, or a
+-- config still carrying an offset would reset to that offset instead of to the player frame's
+-- edge the button promises - and only a second press would land where the first one claimed to.
+-- Either way the offsets are cleared, since after this they describe nothing.
+local function TotemAnchorPlaceDefault(useLegacyOffsets)
+	local anchor = XPerl_Player_TotemAnchor
+	if (not anchor or not XPerl_Player) then
+		return
+	end
+
+	local x, y = 0, 0
+	if (pconf and pconf.totems) then
+		if (useLegacyOffsets) then
+			x = pconf.totems.offsetX or 0
+			y = pconf.totems.offsetY or 0
+		end
+		pconf.totems.offsetX, pconf.totems.offsetY = nil, nil
+	end
+
+	anchor:ClearAllPoints()
+	anchor:SetPoint("TOP", XPerl_Player, "BOTTOM", x, y)
+
+	-- Re-anchor to the screen exactly the way XPerl_RestorePosition would, so the frame stops
+	-- following XPerl_Player the moment it has a position of its own.
+	local left, top = anchor:GetLeft(), anchor:GetTop()
+	if (left and top) then
+		anchor:ClearAllPoints()
+		anchor:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left, top)
+		XPerl_SavePosition(anchor)
+	end
+end
+
+-- TotemAnchorRestore
+-- Done lazily rather than in XPerl_Player_OnLoad, because the migration above needs XPerl_Player
+-- to already be sitting at its own restored position before it can read coordinates off it.
+local function TotemAnchorRestore()
+	local anchor = XPerl_Player_TotemAnchor
+	if (not anchor or anchor.positioned) then
+		return
+	end
+
+	-- Both branches below need XPerlConfigNew: one reads the saved position out of it, the other
+	-- writes the migrated one into it. Leave 'positioned' unset until it exists, or a first run
+	-- that got here early would latch and never place the frame at all this session.
+	if (not XPerlConfigNew) then
+		return
+	end
+	anchor.positioned = true
+
+	local saved = XPerl_GetSavePositionTable()
+	saved = saved and saved[anchor:GetName()]
+
+	if (saved and saved.left and saved.top) then
+		XPerl_RestorePosition(anchor)
+	else
+		TotemAnchorPlaceDefault(true)
+	end
+end
+
+-- XPerl_Player_TotemAnchorSetScale
+-- Saved positions are scale-coupled: XPerl_SavePosition stores GetTop() * GetScale() and
+-- XPerl_RestorePosition divides by the current scale. Scaling the frame without re-applying the
+-- position therefore moves it, so the two always happen together - the same order
+-- XPerl_Player_SetWidth uses for the player frame itself.
+function XPerl_Player_TotemAnchorSetScale()
+	local anchor = XPerl_Player_TotemAnchor
+	if (anchor and XPerl_ModuleLoaded("XPerl_Player")) then
+		anchor:SetScale((pconf and pconf.totems and pconf.totems.scale) or 1)
+		XPerl_RestorePosition(anchor)
+	end
+end
+
+-- XPerl_Player_TotemAnchorReset
+-- The options panel's way back to the default spot, now that the offset sliders are gone. Without
+-- it a player who dragged the frame somewhere odd would have no way to undo it from the panel.
+--
+-- The XPerl_ModuleLoaded check is the same one CLAUDE.md calls for on the Raid/Party side: every
+-- other route into this code is a handler teardown has already unregistered, but the options
+-- panel always runs. With XPerl_Player off, its frame was only hidden by KillFrame and never
+-- positioned, so measuring off it would save a meaningless spot and burn the migration offsets.
+function XPerl_Player_TotemAnchorReset()
+	local anchor = XPerl_Player_TotemAnchor
+	if (anchor and XPerl_ModuleLoaded("XPerl_Player")) then
+		anchor.positioned = true
+		TotemAnchorPlaceDefault()
+	end
+end
+
+-- XPerl_Player_TotemAnchorUpdate
+-- The drag handle only exists while the frames are unlocked. Called from XPerl_UnlockFrames and
+-- XPerl_LockFrames, and from the /xperl lock|unlock commands, which set XPerlLocked themselves
+-- rather than going through those two.
+function XPerl_Player_TotemAnchorUpdate()
+	local anchor = XPerl_Player_TotemAnchor
+	if (anchor and anchor.Enable) then
+		if (XPerlLocked == 0) then
+			anchor:Enable()
+		else
+			anchor:Disable()
+		end
+	end
+end
+
 -- XPerl_Player_SetTotems
+-- Fork change: upstream parented the Blizzard totem frame to XPerl_Player and positioned it from
+-- pconf.totems.offsetX/offsetY. It now hangs off XPerl_Player_TotemAnchor, a draggable frame with
+-- a saved position, so the totems can go anywhere on screen instead of only under the player.
 function XPerl_Player_SetTotems(self, ...)
-	if (pconf.totems and pconf.totems.enable) then
-		TotemFrame:SetParent(XPerl_Player)
+	local anchor = XPerl_Player_TotemAnchor
+
+	if (anchor and pconf.totems and pconf.totems.enable) then
+		-- Scale first: TotemAnchorRestore may migrate an old position off XPerl_Player, and the
+		-- coordinates it reads are in the anchor's own scaled units.
+		--
+		-- Re-anchor on any scale change, not just the slider's. Saved positions are scale-coupled,
+		-- so swapping config underneath us - Reset all to defaults, Load Settings, a per-character
+		-- to global switch - would otherwise scale the frame and leave it sitting somewhere else.
+		-- Guarded on an actual change so a totem drop does not re-place the frame every time.
+		local scale = pconf.totems.scale or 1
+		if (anchor:GetScale() ~= scale) then
+			anchor:SetScale(scale)
+			XPerl_RestorePosition(anchor)
+		end
+		TotemAnchorRestore()
+		anchor.active = true
+		anchor:Show()
+		TotemFrame:SetParent(anchor)
 		TotemFrame:ClearAllPoints()
-		TotemFrame:SetPoint("TOP", XPerl_Player, "BOTTOM", pconf.totems.offsetX, pconf.totems.offsetY)
+		TotemFrame:SetPoint("TOP", anchor, "TOP", 0, 0)
 	else
 		TotemFrame:SetParent(PlayerFrame)
 		TotemFrame:ClearAllPoints()
 		TotemFrame:SetPoint("TOPLEFT", PlayerFrame, "BOTTOMLEFT", 99, 38)
+		if (anchor) then
+			-- Hide only after the reparent above, or the totems would go down with the anchor.
+			anchor.active = nil
+			anchor:Hide()
+		end
 	end
+
+	XPerl_Player_TotemAnchorUpdate()
 end
 
 -- XPerl_Player_Set_Bits()
@@ -1166,17 +1303,28 @@ function XPerl_Player_Set_Bits(self)
 
 	if (playerClass == "SHAMAN") then
 		if (not pconf.totems) then
+			-- Fork change: offsetX/offsetY are gone - the frame is dragged now, and its position
+			-- lives in the shared saved-positions table like every other X-Perl frame.
 			pconf.totems = {
-				enable = true,
-				offsetX = 0,
-				offsetY = 0
+				enable = true
 			}
+		end
+		if (not pconf.totems.scale) then
+			-- Not 1: upstream parented the bar to XPerl_Player, so it always drew at the player
+			-- frame's scale. Anchoring to UIParent instead would shrink it on first login for
+			-- anyone whose player frame is not at 100%.
+			pconf.totems.scale = pconf.scale or 1
 		end
 
 		if (not self.totemHooked) then
 			self.totemHooked = true
 			hooksecurefunc("TotemFrame_Update", XPerl_Player_SetTotems)
 		end
+
+		-- Place it now rather than waiting on the hook. TotemFrame_Update has usually already
+		-- fired for PLAYER_ENTERING_WORLD by the time we get here, and a shaman with no totems
+		-- out would otherwise have no anchor to unlock and drag until the next totem drop.
+		XPerl_Player_SetTotems(self)
 	end
 	
 	self:SetAlpha(conf.transparency.frame)

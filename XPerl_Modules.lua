@@ -45,7 +45,7 @@
 -- augment= modules that decorate other frames rather than owning their own;
 --          disabled via a best-effort function guard instead of frame teardown.
 local MODULES = {
-	XPerl_Player        = {frames = {"XPerl_Player"}, blizz = {"PlayerFrame"}},
+	XPerl_Player        = {frames = {"XPerl_Player", "XPerl_Player_TotemAnchor"}, blizz = {"PlayerFrame"}},
 	XPerl_PlayerBuffs   = {augment = true},
 	XPerl_PlayerPet     = {frames = {"XPerl_Player_Pet"}, blizz = {"PetFrame"}},
 	XPerl_Target        = {frames = {"XPerl_Target", "XPerl_Focus"}, blizz = {"TargetFrame", "TargetofTargetFrame", "FocusFrame"}},

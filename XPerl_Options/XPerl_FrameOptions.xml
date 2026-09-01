@@ -5411,7 +5411,16 @@
 								if (select(2, UnitClass("player")) ~= "SHAMAN") then
 									self:Hide()
 								end
+								getglobal(self:GetName().."_Help"):SetText(XPERL_CONF_PLAYER_TOTEMS_HELP)
 							</OnLoad>
+							<OnShow>
+								-- Same reason $parent_Buffs checks its module: with XPerl_Player torn
+								-- down there is no frame to position against, so offering the controls
+								-- would only let the player save a meaningless position.
+								if (not XPerl_ModuleLoaded("XPerl_Player")) then
+									self:Hide()
+								end
+							</OnShow>
 						</Scripts>
 						<Backdrop edgeFile="Interface\Tooltips\UI-Tooltip-Border" tile="true">
 							<EdgeSize>
@@ -5436,6 +5445,20 @@
 										</Anchor>
 									</Anchors>
 								</FontString>
+								<!-- Fork change: the two offset sliders that used to sit here are gone, so this
+								     says how the frame is positioned now instead. Frames are always unlocked
+								     while this window is open, so the move handle is on screen as it is read. -->
+								<FontString name="$parent_Help" inherits="GameFontHighlightSmall" justifyH="LEFT">
+									<Color r="0.8" g="0.8" b="0.8" a="1" />
+									<Anchors>
+										<Anchor point="TOPLEFT">
+											<Offset><AbsDimension x="5" y="-112"/></Offset>
+										</Anchor>
+										<Anchor point="TOPRIGHT">
+											<Offset><AbsDimension x="-8" y="-112"/></Offset>
+										</Anchor>
+									</Anchors>
+								</FontString>
 							</Layer>
 						</Layers>
 						<Frames>
@@ -5455,64 +5478,45 @@
 									</OnLoad>
 								</Scripts>
 							</CheckButton>
-							<Slider name="$parent_OffsetX" inherits="XPerlSlider">
-								<Size><AbsDimension x="140" y="16"/></Size>
+							<Slider name="$parent_Scale" inherits="XPerlSlider">
 								<Anchors>
 									<Anchor point="TOPLEFT" relativeTo="$parent_Enable" relativePoint="BOTTOMLEFT">
-										<Offset><AbsDimension x="5" y="-15"/></Offset>
+										<Offset><AbsDimension x="5" y="-22"/></Offset>
 									</Anchor>
 								</Anchors>
 								<Scripts>
 									<OnLoad>
-										XPerl_Options_RegisterProtected(self)
-										self:SetMinMaxValues(-1100, 1100)
-										self:SetValueStep(1)
-										XPerl_SliderSetup(self)
-										XPerl_OptionsSetMyText(self, "XPERL_CONF_PLAYER_TOTEM_OFFSETX")
-									</OnLoad>
-									<OnShow>
-										self:SetValue(XPerlDB.player.totems and XPerlDB.player.totems.offsetX or 0)
-									</OnShow>
-									<OnValueChanged>
-										if (XPerlDB.player.totems) then
-											if (XPerlDB.player.totems.offsetX ~= value) then
-												XPerlDB.player.totems.offsetX = value
-												XPerl_Player_SetTotems(XPerl_Player)
+										self.configBase = "XPerlDB.player.totems"
+										self.configIndex = "scale"
+										self.configClick = function()
+											if (XPerl_Player_TotemAnchorSetScale) then
+												XPerl_Player_TotemAnchorSetScale()
 											end
 										end
-										_G[self:GetName().."Current"]:SetText(value)
-									</OnValueChanged>
+										XPerl_OptionsSetMyText(self, "XPERL_CONF_PLAYER_TOTEMS_SCALE")
+										XPerl_Options_RegisterScalingSlider(self)
+									</OnLoad>
 								</Scripts>
 							</Slider>
-							<Slider name="$parent_OffsetY" inherits="XPerlSlider">
-								<Size><AbsDimension x="140" y="16"/></Size>
+							<Button name="$parent_Reset" inherits="XPerlButtonTemplate">
+								<Size><AbsDimension x="110" y="24"/></Size>
 								<Anchors>
-									<Anchor point="TOPLEFT" relativeTo="$parent_OffsetX" relativePoint="BOTTOMLEFT">
-										<Offset><AbsDimension x="0" y="-20"/></Offset>
+									<Anchor point="TOPLEFT" relativeTo="$parent_Help" relativePoint="BOTTOMLEFT">
+										<Offset><AbsDimension x="0" y="-8"/></Offset>
 									</Anchor>
 								</Anchors>
 								<Scripts>
 									<OnLoad>
+										XPerl_OptionsSetMyText(self, "XPERL_CONF_PLAYER_TOTEMS_RESET")
 										XPerl_Options_RegisterProtected(self)
-										self:SetMinMaxValues(-800, 800)
-										self:SetValueStep(1)
-										XPerl_SliderSetup(self)
-										XPerl_OptionsSetMyText(self, "XPERL_CONF_PLAYER_TOTEM_OFFSETY")
 									</OnLoad>
-									<OnShow>
-										self:SetValue(XPerlDB.player.totems and XPerlDB.player.totems.offsetY or 0)
-									</OnShow>
-									<OnValueChanged>
-										if (XPerlDB.player.totems) then
-											if (XPerlDB.player.totems.offsetY ~= value) then
-												XPerlDB.player.totems.offsetY = value
-												XPerl_Player_SetTotems(XPerl_Player)
-											end
+									<OnClick>
+										if (XPerl_Player_TotemAnchorReset) then
+											XPerl_Player_TotemAnchorReset()
 										end
-										_G[self:GetName().."Current"]:SetText(value)
-									</OnValueChanged>
+									</OnClick>
 								</Scripts>
-							</Slider>
+							</Button>
 						</Frames>
 					</Frame>
 				</Frames>

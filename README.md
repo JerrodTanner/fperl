@@ -214,6 +214,22 @@ too. Tick **Only My Debuffs** as well if you don't want anyone else's under the 
 Icons wrap by frame width and stack upwards, honouring **Debuff Size** and **Max Rows**, so a long
 row never lands on the frame itself.
 
+## Movable totem frame
+
+**Player tab → Blizzard Totem Frame** (shamans only). The totem bar used to be stuck under the
+player frame, nudged left and right by two offset sliders. It's now a frame you drag anywhere on
+screen, and it stays where you put it.
+
+Open the options window (`/xperl`) — that unlocks the frames — and drag the move icon that appears
+on the totem bar. The icon shows even with no totems out, so you can place it before a pull.
+**Reset Position** puts it back under the player frame.
+
+**Totem Frame Scale** resizes it, 50% up to your **Maximum Frame Scale** on the Miscellaneous tab.
+Scaling keeps it where you put it rather than sliding it across the screen.
+
+Untick **Enable** to hand the totem bar back to the default UI. Your old horizontal/vertical offsets
+carry over the first time you log in, so nothing jumps.
+
 ## Raid markers on party frames
 
 Party frames now show the skull/X/square on the member, not just on their target. Right-click a
