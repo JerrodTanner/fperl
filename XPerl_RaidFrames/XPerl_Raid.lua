@@ -1107,9 +1107,14 @@ local emptyNames = {}
 local priorityBuffs = {
 	DRUID = {
 		[1] = {48518, 48517},				-- Balance: Eclipse (Lunar), Eclipse (Solar)
-		[2] = {16870, 16864},				-- Feral: Clearcasting, which is Omen of Clarity's proc.
-								-- Both listed because the talent is passive here and
-								-- the aura is the named one, but servers differ.
+		[2] = {52610, 16870, 16864},			-- Feral: Savage Roar, then Clearcasting, which is
+								-- Omen of Clarity's proc. Both Clearcasting IDs are
+								-- listed because the talent is passive here and the
+								-- aura is the named one, but servers differ.
+								-- Savage Roar leads: it is the one a cat has to keep
+								-- up by its remaining time, so its countdown is what
+								-- you are actually reading, where Clearcasting is
+								-- spent the moment you see it. Single rank on 3.3.5a.
 	},
 	DEATHKNIGHT = {
 		[2] = {59052, 51124, 51271},			-- Frost: Freezing Fog (the Rime proc), Killing
@@ -1370,7 +1375,7 @@ local function CollectSortedBuffs(partyid, aconf, filter)
 
 	local n = 0
 	for index = 1, AURA_SCAN_MAX do
-		local name, _, tex, stacks, _, duration, endTime, caster = XPerl_UnitBuff(partyid, index, filter, true)
+		local name, _, tex, stacks, _, duration, endTime, caster = XPerl_UnitBuff(partyid, index, filter, true, true)
 		if (not name) then
 			break
 		end
@@ -1414,7 +1419,7 @@ local function CollectDebuffs(partyid, aconf, filter)
 
 	local n = 0
 	for index = 1, AURA_SCAN_MAX do
-		local name, _, tex, stacks, _, duration, endTime, caster = XPerl_UnitDebuff(partyid, index, filter, true)
+		local name, _, tex, stacks, _, duration, endTime, caster = XPerl_UnitDebuff(partyid, index, filter, true, true)
 		if (not name) then
 			break
 		end

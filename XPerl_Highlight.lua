@@ -375,7 +375,17 @@ function xpHigh:OnUpdate(elapsed)
 		end
 
 		if (not any) then
-			self.list[guid] = nil
+			-- del, rather than just dropping the reference. These tables come from new() and
+			-- every other cleanup path in this file hands them back (Damage, SparkleAreaOnUpdate,
+			-- RemoveAllFromGUID); this one let them fall out of the pool, so the pool ran dry and
+			-- new() allocated a fresh table for the next effect on that unit. That is churn the
+			-- pool exists to prevent, and it is at its worst exactly where it is least wanted: a
+			-- healer's HOTSPARKS entries last 0.1 seconds, so a unit's entry empties and is
+			-- rebuilt continuously for the length of a fight. FreeTables is weak-keyed, so the
+			-- dropped tables were collectable - which is the point, they became garbage, and
+			-- garbage collection is what a frame-time stutter with a healthy frame rate looks
+			-- like.
+			self.list[guid] = del(self.list[guid])
 			self.flashers[guid] = nil
 		end
 	end
@@ -1139,7 +1149,16 @@ function xpHigh:SparkleArea(a, duration, mode, ttl)
 		if (not self.sparkleAreas[area.key]) then
 			self.sparkleAreas[area.key] = area
 		else
-			del(area)			-- Duplicate area, discard
+			-- Deep, because area owns two tables of its own (colour and sparks, both new()
+			-- above) and a shallow del only nils the keys pointing at them - so both leaked out
+			-- of the pool on every discard. SparkleAreaOnUpdate already frees this same table
+			-- with del(area, true); this path disagreed with it.
+			--
+			-- And this is the common path, not the rare one. The key is the area's screen rect,
+			-- so a raid frame that has not moved produces the same key every time, and
+			-- ShowHotSparks re-calls this for the same health bar on every heal tick while
+			-- HOTSPARKS is up. Three tables were taken from the pool per call and one returned.
+			del(area, true)			-- Duplicate area, discard
 		end
 	end
 end
@@ -1672,9 +1691,26 @@ function xpHigh:FindMyPomPom()
 end
 
 -- RemoveAllFromGUID
-function xpHigh:RemoveAllFromGUID(unit)
+-- Takes a GUID, and is only ever passed one - UNIT_AURA below calls it with UnitGUID(unit).
+--
+-- The parameter was named "unit" while the body read "guid", which was therefore a global and
+-- always nil, so the guard never passed and this cleared nothing at all. Its only caller is the
+-- dead-unit branch of UNIT_AURA, so what it cost was that a raid member who died kept every
+-- highlight they had - your HoT, shield or incoming-heal colour stayed on a corpse until each key
+-- happened to expire on its own. TARGET and AGGRO don't expire at all (Add stores 0 for those and
+-- the sweep only ever removes a key whose time is > 0), so those two waited on the next
+-- ClearAll("TARGET") or AGGRO Remove instead.
+--
+-- Not a growing leak, to be clear: both of those are paired elsewhere and self.list is bounded by
+-- the roster either way. This is a correctness fix, and the pool return below is the tidy-up that
+-- goes with it.
+--
+-- The table goes back to the reuse pool rather than being dropped, matching Damage and
+-- SparkleAreaOnUpdate. del returns nil, which is what clears the key.
+function xpHigh:RemoveAllFromGUID(guid)
 	if (guid and self.list[guid]) then
-		self.list[guid] = nil
+		self.list[guid] = del(self.list[guid])
+		self.flashers[guid] = nil
 		self:Send(guid)
 	end
 end

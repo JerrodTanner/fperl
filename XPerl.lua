@@ -2056,7 +2056,24 @@ local RaidFrameIgnores = {
 
 -- BuffException
 local showInfo
-local function BuffException(unit, index, flag, func, exceptions, raidFrames)
+-- skipRealIndex is a fork addition: it says the caller will not use the trailing unfiltered index,
+-- so the rescan that recovers it can be skipped. Only that rescan changes; every returned aura
+-- value is identical either way, and a caller that omits the argument behaves exactly as before.
+--
+-- Why it exists: with Castable Only on ("RAID"), recovering the real index means walking the
+-- unfiltered list from 1 for *every* icon, so the cost grows with the square of how many castable
+-- buffs the unit has. The bulk collectors captured 8 or 9 of the 10 return values and dropped the
+-- index on the floor, so all of that was spent computing a number nobody read.
+--
+-- Measured over a modelled pass, counting UnitBuff calls: a unit carrying 25 buffs of which 8 are
+-- castable cost 80 calls, of which 36 were the rescan; at 20 castable it was 380 calls, of which
+-- 210 were. Note it scales on the castable count, not the total buff count - an earlier version of
+-- this comment said B*B on the whole list and put the figure several times too high.
+--
+-- Without Castable Only none of this ran: the flag ~= "RAID" branch above returns after a single
+-- call and always did. The tooltip path still asks for the real index - it is the one caller that
+-- genuinely needs it, and it runs once per hover rather than once per icon per event.
+local function BuffException(unit, index, flag, func, exceptions, raidFrames, skipRealIndex)
 	local name, rank, buff, count, debuffType, dur, max, isMine, isStealable
 	if (flag ~= "RAID") then
 		-- Not filtered, just return it
@@ -2067,7 +2084,7 @@ local function BuffException(unit, index, flag, func, exceptions, raidFrames)
 	name, rank, buff, count, debuffType, dur, max, isMine, isStealable = func(unit, index, "RAID")
 	if (buff) then
 		-- We need the index of the buff unfiltered later for tooltips
-		for i = 1,1000 do
+		for i = 1, (skipRealIndex and 0 or 1000) do
 			local name1, rank1, buff1, count1, debuffType1, dur1, max1, isMine1, isStealable1 = func(unit, i)
 			if (not name1) then
 				break
@@ -2129,34 +2146,72 @@ local function BuffException(unit, index, flag, func, exceptions, raidFrames)
 end
 
 -- DebuffException
-local function DebuffException(unit, start, flag, func, raidFrames)
+-- Returns the start'th debuff that isn't seasonal or on the raid-frame ignore list.
+--
+-- The counting makes this random-access API quadratic under the sequential use it actually gets.
+-- Every hot caller walks start = 1, 2, 3 ... and each call used to re-walk the raw list from index
+-- 1 to re-count what it had already counted, so D debuffs cost about D*D/2 UnitDebuff calls to
+-- read D of them - and unlike the buff row above this happens with no options set, because the
+-- raid collectors always pass raidFrames.
+--
+-- So a sequential walk now resumes where the previous call stopped. The guard is deliberately
+-- narrow: same unit, same flag, same function, same raidFrames, and start exactly one past the
+-- last one answered. Anything else - a different unit, a repeat of the same index, a jump - falls
+-- through to the full scan and is answered exactly as before, so this is an optimisation of the
+-- sequential case and not a change to the contract.
+--
+-- Resuming is safe because the aura list cannot move underneath a walk. The client's Lua is
+-- single threaded and events are only dispatched between top-level calls, so the 1..D loop inside
+-- one CollectDebuffs runs with no event boundary in it, and nothing in the loop body can call back
+-- into the game to change a debuff. A fresh pass always asks for 1 again, which takes the slow
+-- path and re-reads everything. The one-entry state is cleared whenever a scan runs out, so a
+-- caller asking past the end can never leave a stale resume point behind it.
+local scanUnit, scanFlag, scanFunc, scanRaid, scanStart, scanRaw
+local function DebuffException(unit, start, flag, func, raidFrames, skipRealIndex)
 	local name, rank, buff, count, debuffType, dur, max, caster, isStealable, index
-	local valid = 0
-	for i = 1,1000 do
-		name, rank, buff, count, debuffType, dur, max, caster, isStealable, index = BuffException(unit, i, flag, func, DebuffExceptions, raidFrames)
+	local i, valid = 1, 0
+
+	-- Gated on skipRealIndex, which is only passed by the bulk collectors - so the resume path is
+	-- structurally unreachable from XPerl_TooltipSetUnitDebuff, the one caller that asks for a
+	-- single arbitrary index rather than walking. That is what makes this safe without having to
+	-- reason about whether a hover could land on exactly one past the last icon drawn. For the
+	-- same reason the state below is only written on that path: the cache is the collectors' own
+	-- and nothing else can seed it or read it.
+	if (skipRealIndex and scanStart and start == scanStart + 1 and unit == scanUnit and flag == scanFlag and func == scanFunc and raidFrames == scanRaid) then
+		i, valid = scanRaw + 1, scanStart
+	end
+
+	while (i <= 1000) do
+		name, rank, buff, count, debuffType, dur, max, caster, isStealable, index = BuffException(unit, i, flag, func, DebuffExceptions, raidFrames, skipRealIndex)
 		if (not name) then
 			break
 		end
 		if (not SeasonalDebuffs[name] and not (raidFrames and RaidFrameIgnores[name])) then
 			valid = valid + 1
 			if (valid == start) then
+				if (skipRealIndex) then
+					scanUnit, scanFlag, scanFunc, scanRaid, scanStart, scanRaw = unit, flag, func, raidFrames, start, i
+				end
 				return name, rank, buff, count, debuffType, dur, max, caster, isStealable, index
 			end
 		end
+		i = i + 1
 	end
+
+	scanStart = nil			-- Walked off the end, so there is nothing to resume from
 end
 
 -- XPerl_UnitBuff
-function XPerl_UnitBuff(unit, index, flag, raidFrames)
-	return BuffException(unit, index, flag, Utopia_UnitBuff or UnitBuff, BuffExceptions, raidFrames)
+function XPerl_UnitBuff(unit, index, flag, raidFrames, skipRealIndex)
+	return BuffException(unit, index, flag, Utopia_UnitBuff or UnitBuff, BuffExceptions, raidFrames, skipRealIndex)
 end
 
 -- XPerl_UnitBuff
-function XPerl_UnitDebuff(unit, index, flag, raidFrames)
+function XPerl_UnitDebuff(unit, index, flag, raidFrames, skipRealIndex)
 	if (conf.buffs.ignoreSeasonal or raidFrames) then
-		return DebuffException(unit, index, flag, Utopia_UnitDebuff or UnitDebuff, raidFrames)
+		return DebuffException(unit, index, flag, Utopia_UnitDebuff or UnitDebuff, raidFrames, skipRealIndex)
 	end
-	return BuffException(unit, index, flag, Utopia_UnitDebuff or UnitDebuff, DebuffExceptions, raidFrames)
+	return BuffException(unit, index, flag, Utopia_UnitDebuff or UnitDebuff, DebuffExceptions, raidFrames, skipRealIndex)
 end
 
 -- XPerl_TooltipSetUnitBuff
@@ -3103,7 +3158,7 @@ function XPerl_Unit_UpdateBuffs(self, maxBuffs, maxDebuffs, castableOnly, curabl
 				-- our own buffs.
 				for buffnum = 1,maxBuffs do
 					local filter = castableOnly == 1 and "RAID" or nil
-					local name, rank, buff, count, _, duration, endTime, isMine, isStealable = XPerl_UnitBuff(partyid, buffnum, filter)
+					local name, rank, buff, count, _, duration, endTime, isMine, isStealable = XPerl_UnitBuff(partyid, buffnum, filter, nil, true)
 					if (not name) then
 						if (mine == 1) then
 							maxBuffs = buffnum - 1
@@ -3216,7 +3271,7 @@ function XPerl_Unit_UpdateBuffs(self, maxBuffs, maxDebuffs, castableOnly, curabl
 
 				for buffnum = 1,maxDebuffs do
 					local filter = (isFriendly and curableOnly == 1 or castableOnly == 1) and "RAID" or nil
-					local name, rank, debuff, debuffApplications, debuffType, duration, endTime, isMine, isStealable = XPerl_UnitDebuff(partyid, buffnum, filter)
+					local name, rank, debuff, debuffApplications, debuffType, duration, endTime, isMine, isStealable = XPerl_UnitDebuff(partyid, buffnum, filter, nil, true)
 					if (not name) then
 						if (mine == 1) then
 							maxDebuffs = buffnum - 1
